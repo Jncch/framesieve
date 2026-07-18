@@ -1,0 +1,26 @@
+{
+  "name": "framesieve-monorepo",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Deterministic frame gating for vision AI (monorepo root)",
+  "license": "Apache-2.0",
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "tsc -b --clean",
+    "test": "npm run build && node --test \"packages/*/test/**/*.test.ts\"",
+    "test:core": "node --test \"packages/core/test/**/*.test.ts\"",
+    "lint": "node scripts/check-invariants.mjs",
+    "typecheck": "tsc -b && tsc -p tsconfig.tests.json"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  }
+}

@@ -1,0 +1,11 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.DS_Store
+.claude/plan/
+
+# Recordings contain raw, unredacted screen content; never commit
+# them. examples/ ships synthetic recordings and is tracked normally.
+recording/
+recordings/
+*.recording/

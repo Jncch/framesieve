@@ -1,0 +1,42 @@
+{
+  "name": "@framesieve/redact",
+  "version": "0.1.0",
+  "description": "Local PII masking transform for framesieve. Region masks are guaranteed; text-based masking is best-effort by design.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Jncch/framesieve.git",
+    "directory": "packages/redact"
+  },
+  "sideEffects": false,
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./tesseract": {
+      "types": "./dist/tesseract.d.ts",
+      "default": "./dist/tesseract.js"
+    }
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.map",
+    "README.md",
+    "LICENSE"
+  ],
+  "peerDependencies": {
+    "framesieve": "^0.1.0",
+    "tesseract.js": ">=5"
+  },
+  "peerDependenciesMeta": {
+    "tesseract.js": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "framesieve": "^0.1.0"
+  }
+}

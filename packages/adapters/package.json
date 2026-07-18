@@ -1,0 +1,37 @@
+{
+  "name": "@framesieve/adapters",
+  "version": "0.1.0",
+  "description": "Capture sources (electron, browser, node) plus recorder and replay for framesieve.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Jncch/framesieve.git",
+    "directory": "packages/adapters"
+  },
+  "sideEffects": false,
+  "types": "./dist/node/index.d.ts",
+  "exports": {
+    "./node": {
+      "types": "./dist/node/index.d.ts",
+      "default": "./dist/node/index.js"
+    },
+    "./browser": {
+      "types": "./dist/browser/index.d.ts",
+      "default": "./dist/browser/index.js"
+    },
+    "./electron": {
+      "types": "./dist/electron/index.d.ts",
+      "default": "./dist/electron/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.map",
+    "README.md",
+    "LICENSE"
+  ],
+  "dependencies": {
+    "framesieve": "^0.1.0"
+  }
+}

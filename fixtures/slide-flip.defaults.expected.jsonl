@@ -1,0 +1,12 @@
+{"decision":"debounced","elapsedMs":0,"score":144.000000,"seq":1}
+{"decision":"debounced","elapsedMs":500,"score":0.000000,"seq":2}
+{"decision":"emit","elapsedMs":1000,"reason":"threshold","score":0.000000,"seq":3}
+{"decision":"skip","elapsedMs":1500,"score":0.000000,"seq":4}
+{"decision":"skip","elapsedMs":2000,"score":0.000000,"seq":5}
+{"decision":"skip","elapsedMs":2500,"score":0.000000,"seq":6}
+{"decision":"debounced","elapsedMs":3000,"score":60.800000,"seq":7}
+{"decision":"debounced","elapsedMs":3500,"score":0.000000,"seq":8}
+{"decision":"emit","elapsedMs":4000,"reason":"threshold","score":0.000000,"seq":9}
+{"decision":"skip","elapsedMs":4500,"score":0.000000,"seq":10}
+{"decision":"skip","elapsedMs":5000,"score":0.000000,"seq":11}
+{"decision":"skip","elapsedMs":5500,"score":0.000000,"seq":12}
