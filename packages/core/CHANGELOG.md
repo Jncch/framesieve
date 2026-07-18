@@ -3,6 +3,12 @@
 Notable changes to `framesieve`. Pre-1.0 the API may change between
 minor versions; breaking changes are called out here.
 
+## 0.1.3
+
+- Expose `./package.json` in the package `exports` map so tools that
+  read `framesieve/package.json` (some bundlers and resolvers) no
+  longer hit ERR_PACKAGE_PATH_NOT_EXPORTED. No API or runtime changes.
+
 ## 0.1.2
 
 - Releases now publish via OIDC trusted publishing from GitHub Actions,

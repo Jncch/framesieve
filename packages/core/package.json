@@ -1,6 +1,6 @@
 {
   "name": "framesieve",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Deterministic frame gating for vision AI. Decides which captured frames are worth sending to a VLM.",
   "license": "Apache-2.0",
   "type": "module",
@@ -15,7 +15,8 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",
