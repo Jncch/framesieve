@@ -27,5 +27,13 @@ jobs:
       - run: npm run build
       - run: npm test
       # Publishes only the core package (name: framesieve). Provenance
-      # is attached automatically under trusted publishing.
-      - run: npm publish --workspace framesieve
+      # is attached automatically under trusted publishing. Skips when
+      # the version is already on npm, so re-tagging is idempotent.
+      - name: Publish framesieve if the version is new
+        run: |
+          version=$(node -p "require('./packages/core/package.json').version")
+          if npm view "framesieve@${version}" version >/dev/null 2>&1; then
+            echo "framesieve@${version} already published; skipping."
+          else
+            npm publish --workspace framesieve
+          fi
