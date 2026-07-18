@@ -37,10 +37,19 @@ GPU, no network - just fast, deterministic pixel math.
 
 ```bash
 npm install framesieve            # the gate itself (zero dependencies)
-npm install @framesieve/redact    # optional: local PII masking
-npm install @framesieve/adapters  # capture sources + recorder/replay
-npm install @framesieve/cli       # the fsieve command
 ```
+
+`framesieve` (the core gate) is the only package on npm today. The
+companion packages ship on their own schedule and are not published
+yet:
+
+- `@framesieve/adapters` (capture sources, recorder, replay) and
+  `@framesieve/cli` (the `fsieve` command) land with the v0.1 line.
+- `@framesieve/redact` (local PII masking) is planned for v0.2, after
+  it has been battle-tested in production.
+
+Examples below that import `@framesieve/*` describe those APIs; until
+the packages are on npm, run them from a clone of this repository.
 
 ## Quick start
 
@@ -89,7 +98,12 @@ during long silence, and static ignore regions.
 
 The hard part of any change-detection setup is picking thresholds.
 framesieve ships a recorder and a replay CLI so you tune against your
-real screen, offline:
+real screen, offline.
+
+> The recorder and replay live in `@framesieve/adapters`, and the
+> `fsieve` command in `@framesieve/cli`. Both land with the v0.1 line
+> and are not on npm yet; run these from a clone of the repository for
+> now.
 
 ```bash
 # capture a few minutes of your actual usage: wrap your gate with
@@ -109,6 +123,11 @@ surveillance storage. Note that recordings contain raw, unredacted
 screen content; treat the directory accordingly.
 
 ## PII redaction (@framesieve/redact)
+
+> Planned for v0.2, not on npm yet. This package is being battle-tested
+> inside a production meeting-room system before it is extracted and
+> published; `npm install @framesieve/redact` will not resolve until
+> then. The API below is what will ship.
 
 An optional transform that masks personal information before a frame
 leaves the machine. Runs fully locally.

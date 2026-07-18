@@ -1,0 +1,31 @@
+name: publish
+
+# Publishes the framesieve package to npm via OIDC trusted publishing
+# (no NPM_TOKEN secret). Triggers when a v* tag is pushed. Bump the
+# version in packages/core/package.json, commit, then:
+#   git tag vX.Y.Z && git push origin vX.Y.Z
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  id-token: write # required for OIDC trusted publishing
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+      - run: npm test
+      # Publishes only the core package (name: framesieve). Provenance
+      # is attached automatically under trusted publishing.
+      - run: npm publish --workspace framesieve
