@@ -88,6 +88,34 @@ test("pixel algorithm compares at full resolution", () => {
   assert.equal(maskSum(mask), 4);
 });
 
+test("edge ignores a uniform brightness shift that downsample flags", () => {
+  const pattern = (shift: number, elapsedMs: number) =>
+    frameOf(8, 8, elapsedMs, (x) => (x < 4 ? 50 : 200) + shift);
+
+  const down = engine({ diff: { downsampleFactor: 1, luminanceThreshold: 10 } });
+  down.step(pattern(0, 0));
+  const downShift = down.step(pattern(40, 500));
+  assert.ok(maskSum(downShift.mask) > 0, "downsample flags the uniform shift");
+
+  const edge = engine({
+    diff: { algorithm: "edge", downsampleFactor: 1, luminanceThreshold: 10 },
+  });
+  edge.step(pattern(0, 0));
+  const edgeShift = edge.step(pattern(40, 500));
+  assert.equal(maskSum(edgeShift.mask), 0, "edge ignores it: gradients unchanged");
+});
+
+test("edge detects a structural change (a new contour appears)", () => {
+  const edge = engine({
+    diff: { algorithm: "edge", downsampleFactor: 1, luminanceThreshold: 10 },
+  });
+  const flat = solidFrame(8, 8, 100, 0);
+  edge.step(flat); // no edges anywhere
+  const withRect = paintRect(flat, 2, 2, 3, 3, 220); // adds contours
+  const r = edge.step({ ...withRect, elapsedMs: 500 });
+  assert.ok(maskSum(r.mask) > 0, "the new contour registers");
+});
+
 test("ignoreRegions suppress changes inside the region only", () => {
   const e = engine({
     diff: { downsampleFactor: 1, luminanceThreshold: 10 },

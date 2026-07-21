@@ -2,7 +2,8 @@
 
 Deterministic frame gating for vision AI. Feed it a stream of screen
 captures; it tells you which frames are actually worth sending to a
-VLM - and masks personal information before they leave the machine.
+VLM. An optional transform hook lets you black out sensitive regions
+locally, before a frame ever leaves the machine.
 
 ## Why
 
@@ -163,6 +164,12 @@ during long silence, and static ignore regions. Set
 (reason "prime") when an observer needs the current state right away
 instead of waiting for the stream to settle.
 
+By default the gate compares downsampled luma. Set `diff.algorithm:
+"edge"` to compare Sobel edge maps instead: a theme or brightness color
+shift (unchanged gradients) is ignored, while text and contour changes
+still register. Compare it against your own recording with `fsieve
+replay <dir> --algorithm edge`.
+
 ## Tuning without guesswork: record and replay
 
 The hard part of any change-detection setup is picking thresholds.
@@ -190,6 +197,58 @@ capped (5 min / 1 GiB by default) - this is a tuning tool, not
 surveillance storage. Note that recordings contain raw, unredacted
 screen content; treat the directory accordingly.
 
+Capturing in a browser or Electron renderer? `createBrowserRecorder`
+(from `@framesieve/adapters/browser`) observes the gate via `gate.tap`
+and collects frames + decisions into a portable `RecordingBundle`; hand
+it to `writeRecordingBundle` (from `@framesieve/adapters/node`) to get a
+recording directory you can `replay` and `--sweep` on Node. Record
+where the real frames are, tune where the tooling is.
+
+## Masking sensitive regions
+
+The surest way to keep something off the wire is to never send it. If
+you know where sensitive content sits - a sidebar, a name field, a
+system tray - black it out with a transform. This is pure pixel math:
+deterministic, zero-dependency, and it cannot miss.
+
+```ts
+import { createFrameGate, type FrameInput } from "framesieve";
+
+type Rect = { x: number; y: number; width: number; height: number };
+
+// Black out fixed rectangles (source pixels) before every emit.
+function maskRegions(regions: Rect[]) {
+  return (frame: FrameInput): FrameInput => {
+    const data = new Uint8ClampedArray(frame.data);
+    for (const { x, y, width, height } of regions) {
+      for (let row = y; row < y + height; row++) {
+        for (let col = x; col < x + width; col++) {
+          const p = (row * frame.width + col) * 4;
+          data[p] = data[p + 1] = data[p + 2] = 0;
+          data[p + 3] = 255;
+        }
+      }
+    }
+    return { ...frame, data };
+  };
+}
+
+const gate = createFrameGate({
+  transform: maskRegions([{ x: 0, y: 0, width: 320, height: 1080 }]),
+});
+```
+
+Return `null` from a transform to drop the frame entirely - a
+fail-closed switch for "if in doubt, do not send". A dropped frame
+still appears in the decision timeline but is excluded from
+`gate.stats().framesEmitted`; `await gate.flush()` waits for in-flight
+deliveries.
+
+For layouts you cannot pin to fixed rectangles, the strongest move is
+to capture a specific window instead of the whole screen. Reading
+arbitrary on-screen text and masking it is a different, weaker problem
+- that is what the optional redact package below is for.
+
 ## PII redaction (@framesieve/redact)
 
 > Planned for v0.2, not on npm yet. This package is being battle-tested
@@ -197,8 +256,10 @@ screen content; treat the directory accordingly.
 > published; `npm install @framesieve/redact` will not resolve until
 > then. The API below is what will ship.
 
-An optional transform that masks personal information before a frame
-leaves the machine. Runs fully locally.
+An optional, heavier layer for the harder case: masking personal
+information that appears as on-screen text, read locally by OCR. It is
+best-effort by design (see the caveats below) - a defense-in-depth
+layer on top of region masks, never a replacement for them.
 
 ```ts
 import { createRedactor } from "@framesieve/redact";

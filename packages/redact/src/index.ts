@@ -161,6 +161,19 @@ function normalize(text: string): string {
   return text.normalize("NFKC").toLowerCase();
 }
 
+/** Max consecutive OCR words joined when hunting for split numbers. */
+const MAX_JOIN = 4;
+
+/** Whether two word boxes sit on the same text line, left-to-right. */
+function onSameLine(a: Region, b: Region): boolean {
+  const aCenter = a.y + a.height / 2;
+  const bCenter = b.y + b.height / 2;
+  return (
+    Math.abs(aCenter - bCenter) <= Math.min(a.height, b.height) / 2 &&
+    b.x >= a.x
+  );
+}
+
 /**
  * Build the masking transform. Plug the result into
  * createFrameGate({ transform }).
@@ -203,6 +216,27 @@ export function createRedactor(options: RedactorOptions = {}): EmitTransform {
           dictionary.some((entry) => normalize(word.text).includes(entry));
         if (hit) {
           fillRegion(data, frame.width, frame.height, word.region, pad);
+        }
+      }
+      // Bounded multi-word join: OCR often splits a long number
+      // ("4242 4242 4242 4242") across words, so a per-word test never
+      // sees the whole thing. Test consecutive same-line runs so digit
+      // patterns still catch it. Best-effort; patterns only (a matching
+      // run masks all of its words).
+      if (patterns.length > 0) {
+        for (let i = 0; i < words.length; i++) {
+          let joined = words[i]!.text;
+          const end = Math.min(words.length, i + MAX_JOIN);
+          for (let j = i + 1; j < end; j++) {
+            if (!onSameLine(words[j - 1]!.region, words[j]!.region)) break;
+            joined += " " + words[j]!.text;
+            if (patterns.some((p) => p.test(joined))) {
+              for (let k = i; k <= j; k++) {
+                fillRegion(data, frame.width, frame.height, words[k]!.region, pad);
+              }
+              break;
+            }
+          }
         }
       }
       return masked;

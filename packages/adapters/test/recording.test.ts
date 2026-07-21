@@ -169,7 +169,7 @@ test("maxBytes stops recording once the budget is exhausted", async () => {
   }
 });
 
-test("stop() restores the original push and finalizes meta.json", async () => {
+test("stop() detaches the tap and finalizes meta.json", async () => {
   const dir = tempDir();
   try {
     const gate = createFrameGate(OPTS);

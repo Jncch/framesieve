@@ -3,6 +3,21 @@
 Notable changes to `framesieve`. Pre-1.0 the API may change between
 minor versions; breaking changes are called out here.
 
+## 0.3.0
+
+- New `gate.tap(observer)`: a synchronous observer of (frame, decision)
+  for every push - the safe hook for recording/metrics without wrapping
+  push(). Returns an unsubscribe function and cannot change decisions.
+- `on()` now returns an unsubscribe function, and a new `on("error",
+  ...)` channel reports a throwing transform (the emit still fails
+  closed and is not counted).
+- New `copyFrameOnEmit` option (default true): opt out of the per-emit
+  frame-buffer copy when you never mutate a pushed buffer.
+- New opt-in diff algorithm `"edge"`: compares Sobel edge maps, so a
+  uniform brightness or theme color shift is ignored while text and
+  contour changes still register. The default stays `"downsample"`;
+  existing recordings decide identically.
+
 ## 0.2.0
 
 - New `frameFromImageData(image, elapsedMs)` helper: the one-line entry

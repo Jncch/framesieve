@@ -3,6 +3,11 @@
 Notable changes to `@framesieve/cli`. Pre-1.0 the CLI surface may
 change between minor versions.
 
+## 0.1.1
+
+- `--algorithm` now accepts `edge` (Sobel edge diff) in addition to
+  `downsample` and `pixel`.
+
 ## 0.1.0
 
 - Initial release. `fsieve replay <dir>` replays a recording through

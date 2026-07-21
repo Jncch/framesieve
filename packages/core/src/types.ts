@@ -43,7 +43,14 @@ export type DiffAlgorithm =
   /** Downsample to a small grayscale buffer, then compare. Default. */
   | "downsample"
   /** Full-resolution per-pixel compare. Slower; for small sources. */
-  | "pixel";
+  | "pixel"
+  /**
+   * Downsample, then compare Sobel edge maps instead of luma. A uniform
+   * brightness / theme color shift leaves gradients unchanged, so it is
+   * ignored; text and contour changes still register. luminanceThreshold
+   * applies to the edge-magnitude delta. Opt-in.
+   */
+  | "edge";
 
 export interface Region {
   x: number;
@@ -162,6 +169,16 @@ export interface FrameGateOptions {
   policy?: PolicyOptions;
   crop?: CropOptions;
   transform?: EmitTransform;
+  /**
+   * Copy each frame's pixel buffer before (async) delivery. Default
+   * true: the copy protects the delivered/transformed frame from a
+   * caller that reuses its capture buffer before delivery settles. Set
+   * false ONLY if you allocate a fresh buffer per frame (or never
+   * mutate after push) to save one full-frame copy per emit; a
+   * delivered frame then aliases your buffer until gate.flush()
+   * settles.
+   */
+  copyFrameOnEmit?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -206,6 +223,16 @@ export interface EmitEvent extends EmitMeta {
   frame: FrameInput;
   /** Present when crop.enabled is true. */
   crops?: Crop[];
+}
+
+/**
+ * Delivered to on("error") when a transform throws. Purely
+ * observational: the emit is still cancelled (fail-closed) and not
+ * counted in stats. Lets you log/alert on a broken transform instead
+ * of losing the error silently.
+ */
+export interface EmitErrorEvent extends EmitMeta {
+  error: unknown;
 }
 
 /** Per-frame decision record; mirrors one line of timeline.jsonl. */
@@ -257,8 +284,25 @@ export interface FrameGate {
    * identical to push(); only the delivery is surfaced inline.
    */
   pushForEmit(frame: FrameInput): Promise<FrameInput | null>;
-  on(event: "emit", listener: (e: EmitEvent) => void): void;
+  /**
+   * Register a synchronous observer called at the end of every push
+   * with the pushed frame (at the elapsedMs the gate used) and its
+   * Decision. Observers cannot change decisions - the decision sequence
+   * is identical whether or not any tap is attached - so this is the
+   * safe hook for recording, metrics, or logging without the recorder
+   * having to wrap push(). Returns a function that removes the
+   * observer. A throwing tap propagates out of push().
+   */
+  tap(observer: (frame: FrameInput, decision: Decision) => void): () => void;
+  /**
+   * Subscribe to "emit" (delivered frames) or "error" (a transform
+   * threw; the emit was cancelled fail-closed). Returns a function that
+   * removes the listener; off() with the same reference also works.
+   */
+  on(event: "emit", listener: (e: EmitEvent) => void): () => void;
+  on(event: "error", listener: (e: EmitErrorEvent) => void): () => void;
   off(event: "emit", listener: (e: EmitEvent) => void): void;
+  off(event: "error", listener: (e: EmitErrorEvent) => void): void;
   stats(): GateStats;
   /**
    * Resolves when every delivery for frames pushed so far has

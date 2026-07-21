@@ -3,6 +3,17 @@
 Notable changes to `@framesieve/adapters`. Pre-1.0 the API may change
 between minor versions.
 
+## 0.2.0
+
+- The node recorder now observes the gate via `gate.tap` instead of
+  monkeypatching `gate.push`, and moves PNG encoding and disk writes off
+  the push hot path onto an async queue drained by `stop()`.
+- New client-side recording: `createBrowserRecorder` (browser / Electron
+  renderer) captures frames + decisions into a portable
+  `RecordingBundle`; `writeRecordingBundle` (node) turns it into a
+  standard recording directory for `replay`. Record on the renderer,
+  tune on Node.
+
 ## 0.1.0
 
 - Initial release. Capture sources for the browser (getDisplayMedia

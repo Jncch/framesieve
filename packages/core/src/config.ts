@@ -19,9 +19,14 @@ export interface ResolvedOptions {
   };
   crop: Required<CropOptions>;
   transform: EmitTransform | null;
+  copyFrameOnEmit: boolean;
 }
 
-const DIFF_ALGORITHMS: readonly DiffAlgorithm[] = ["downsample", "pixel"];
+const DIFF_ALGORITHMS: readonly DiffAlgorithm[] = [
+  "downsample",
+  "pixel",
+  "edge",
+];
 
 function checkInt(name: string, value: number, min: number): number {
   if (!Number.isInteger(value) || value < min) {
@@ -132,5 +137,6 @@ export function resolveOptions(options: FrameGateOptions = {}): ResolvedOptions 
       paddingPx: checkInt("crop.paddingPx", options.crop?.paddingPx ?? 16, 0),
     },
     transform: options.transform ?? null,
+    copyFrameOnEmit: options.copyFrameOnEmit ?? true,
   };
 }

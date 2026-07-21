@@ -539,3 +539,97 @@ test("pushForEmit returns the transformed frame, not the raw one", async () => {
   assert.equal(out!.data[0], 0); // zeroed by the transform
   assert.equal(gate.stats().framesEmitted, 1);
 });
+
+test("tap observes (frame, decision) for every push and does not change decisions", () => {
+  const frames = [at(base, 0), blocksChanged(base, 3, 220, 1000), at(base, 2000)];
+  const opts: FrameGateOptions = {
+    ...GRID,
+    policy: { debounceMs: 800, minIntervalMs: 2000, maxSilenceMs: 0 },
+  };
+  const withoutTap = decisions(createFrameGate(opts), frames);
+
+  const observed: Array<[number, string, number]> = [];
+  const gate = createFrameGate(opts);
+  gate.tap((frame, d) => observed.push([frame.elapsedMs, d.decision, d.seq]));
+  const withTap = decisions(gate, frames);
+
+  assert.deepEqual(withTap, withoutTap); // decisions identical
+  assert.deepEqual(
+    observed,
+    withTap.map((d) => [d.elapsedMs, d.decision, d.seq]),
+  );
+});
+
+test("tap unsubscribe stops further observation", () => {
+  const gate = createFrameGate(OPEN);
+  let count = 0;
+  const off = gate.tap(() => count++);
+  gate.push(at(base, 0));
+  off();
+  gate.push(blocksChanged(base, 3, 220, 500));
+  assert.equal(count, 1);
+});
+
+test("tap sees the clamped elapsedMs under onNonMonotonic clamp", () => {
+  const gate = createFrameGate({
+    ...GRID,
+    policy: { onNonMonotonic: "clamp", debounceMs: 0, minIntervalMs: 0, maxSilenceMs: 0 },
+  });
+  const seen: number[] = [];
+  gate.tap((frame) => seen.push(frame.elapsedMs));
+  gate.push(at(base, 1000));
+  gate.push(at(base, 400)); // clamped to 1000
+  assert.deepEqual(seen, [1000, 1000]);
+});
+
+test("multiple taps all fire, in registration order", () => {
+  const gate = createFrameGate(OPEN);
+  const order: string[] = [];
+  gate.tap(() => order.push("a"));
+  gate.tap(() => order.push("b"));
+  gate.push(at(base, 0));
+  assert.deepEqual(order, ["a", "b"]);
+});
+
+test("on returns an unsubscribe handle", async () => {
+  const gate = createFrameGate(OPEN);
+  const events: EmitEvent[] = [];
+  const off = gate.on("emit", (e) => events.push(e));
+  await gate.pushForEmit(at(base, 0)); // emit -> listener
+  off();
+  await gate.pushForEmit(blocksChanged(base, 3, 220, 500)); // emit, unsubscribed
+  assert.equal(events.length, 1);
+});
+
+test('on("error") reports a throwing transform; emit stays fail-closed', async () => {
+  const gate = createFrameGate({
+    ...OPEN,
+    transform: () => {
+      throw new Error("boom");
+    },
+  });
+  const errors: unknown[] = [];
+  gate.on("error", (e) => errors.push(e.error));
+  const out = await gate.pushForEmit(at(base, 0));
+  assert.equal(out, null); // fail-closed: nothing delivered
+  assert.equal(gate.stats().framesEmitted, 0); // not counted
+  assert.equal(errors.length, 1);
+  assert.match(String((errors[0] as Error).message), /boom/);
+});
+
+test("copyFrameOnEmit true (default) isolates the delivered frame from mutation", async () => {
+  const gate = createFrameGate(OPEN);
+  const f = solidFrame(64, 64, 40, 0);
+  const out = await gate.pushForEmit(f);
+  f.data[0] = 123; // mutate the caller buffer after push
+  assert.ok(out);
+  assert.equal(out!.data[0], 40); // delivered frame was copied, unaffected
+});
+
+test("copyFrameOnEmit false aliases the caller buffer (opt-in, no copy)", async () => {
+  const gate = createFrameGate({ ...OPEN, copyFrameOnEmit: false });
+  const f = solidFrame(64, 64, 40, 0);
+  const out = await gate.pushForEmit(f);
+  assert.ok(out);
+  assert.equal(out!.data, f.data); // same backing buffer, no copy
+});

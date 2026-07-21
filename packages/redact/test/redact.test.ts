@@ -196,6 +196,36 @@ test("address-jp masks postal codes and prefecture-city sequences", async () => 
   }
 });
 
+test("a credit-card split across OCR words is caught by the adjacent-word join", async () => {
+  // 4242 4242 4242 4242 (Luhn-valid) split into four same-line words.
+  const y = 10;
+  const words: OcrWord[] = [0, 10, 20, 30].map((x) => ({
+    text: "4242",
+    region: { x, y, width: 8, height: 4 },
+  }));
+  const out = await apply(
+    createRedactor({ patterns: ["credit-card"], ocr: fakeOcr(words) }),
+    frame(),
+  );
+  assert.ok(out !== null);
+  for (const w of words) assert.ok(isBlack(out, w.region.x, y), `x=${w.region.x}`);
+});
+
+test("the adjacent-word join does not fire across lines or on short runs", async () => {
+  // Two "4242" on different lines must not join into a 16-digit number.
+  const words: OcrWord[] = [
+    { text: "4242", region: { x: 0, y: 0, width: 8, height: 4 } },
+    { text: "4242", region: { x: 0, y: 40, width: 8, height: 4 } },
+  ];
+  const out = await apply(
+    createRedactor({ patterns: ["credit-card"], ocr: fakeOcr(words) }),
+    frame(),
+  );
+  assert.ok(out !== null);
+  assert.ok(!isBlack(out, 0, 0));
+  assert.ok(!isBlack(out, 0, 40));
+});
+
 test("a custom { name, test } pattern masks matching words", async () => {
   const employeeId = {
     name: "employee-id",

@@ -21,7 +21,7 @@ Options:
                              params: downsampleFactor, luminanceThreshold,
                              blockChangeRatio, minChangedBlocks, windowSize,
                              debounceMs, minIntervalMs, maxSilenceMs
-  --algorithm <name>         diff algorithm: downsample | pixel
+  --algorithm <name>         diff algorithm: downsample | pixel | edge
   --downsample <n>           diff.downsampleFactor
   --luminance <n>            diff.luminanceThreshold
   --grid <cols>x<rows>       blocks grid, e.g. 16x9
@@ -135,8 +135,12 @@ function buildOptions(values: Record<string, unknown>): FrameGateOptions {
 
   const algorithm = str("algorithm");
   if (algorithm !== undefined) {
-    if (algorithm !== "downsample" && algorithm !== "pixel") {
-      throw new UsageError(`--algorithm expects downsample or pixel`);
+    if (
+      algorithm !== "downsample" &&
+      algorithm !== "pixel" &&
+      algorithm !== "edge"
+    ) {
+      throw new UsageError(`--algorithm expects downsample, pixel, or edge`);
     }
     options = { ...options, diff: { ...options.diff, algorithm } };
   }

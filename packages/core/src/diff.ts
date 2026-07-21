@@ -1,4 +1,4 @@
-import type { FrameInput, Region } from "./types.ts";
+import type { DiffAlgorithm, FrameInput, Region } from "./types.ts";
 import type { ResolvedOptions } from "./config.ts";
 
 /**
@@ -80,6 +80,37 @@ export function toGray(
 }
 
 /**
+ * Sobel edge magnitude over a grayscale buffer, |gx| + |gy| clamped to
+ * 255 (integer, so results stay bit-identical across platforms).
+ * Borders clamp to the edge pixel. Comparing edge maps instead of luma
+ * makes a uniform brightness shift (unchanged gradients) a non-event.
+ */
+export function sobel(gray: Uint8Array, w: number, h: number): Uint8Array {
+  const out = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) {
+    const y0 = y > 0 ? y - 1 : 0;
+    const y1 = y < h - 1 ? y + 1 : h - 1;
+    for (let x = 0; x < w; x++) {
+      const x0 = x > 0 ? x - 1 : 0;
+      const x1 = x < w - 1 ? x + 1 : w - 1;
+      const tl = gray[y0 * w + x0]!;
+      const tc = gray[y0 * w + x]!;
+      const tr = gray[y0 * w + x1]!;
+      const ml = gray[y * w + x0]!;
+      const mr = gray[y * w + x1]!;
+      const bl = gray[y1 * w + x0]!;
+      const bc = gray[y1 * w + x]!;
+      const br = gray[y1 * w + x1]!;
+      const gx = tr + 2 * mr + br - (tl + 2 * ml + bl);
+      const gy = bl + 2 * bc + br - (tl + 2 * tc + tr);
+      const m = (gx < 0 ? -gx : gx) + (gy < 0 ? -gy : gy);
+      out[y * w + x] = m > 255 ? 255 : m;
+    }
+  }
+  return out;
+}
+
+/**
  * Ignore mask at working resolution: 1 where the working pixel's
  * source footprint intersects any ignore region (in source pixels).
  */
@@ -118,7 +149,7 @@ export class DiffEngine {
   private prevW = 0;
   private prevH = 0;
   private ignoreMask: Uint8Array | null = null;
-  private readonly algorithm: "downsample" | "pixel";
+  private readonly algorithm: DiffAlgorithm;
   private readonly factor: number;
   private readonly threshold: number;
   private readonly ignoreRegions: Region[];
@@ -134,7 +165,11 @@ export class DiffEngine {
   }
 
   step(frame: FrameInput): ChangeMask {
-    const { gray, w, h } = toGray(frame, this.algorithm, this.factor);
+    // "edge" downsamples like "downsample", then compares Sobel maps.
+    const grayAlg: "downsample" | "pixel" =
+      this.algorithm === "pixel" ? "pixel" : "downsample";
+    const { gray, w, h } = toGray(frame, grayAlg, this.factor);
+    const work = this.algorithm === "edge" ? sobel(gray, w, h) : gray;
     if (this.prev === null || this.prevW !== w || this.prevH !== h) {
       this.prev = new Uint8Array(w * h);
       this.prevW = w;
@@ -152,10 +187,10 @@ export class DiffEngine {
     const mask = new Uint8Array(w * h);
     for (let i = 0; i < mask.length; i++) {
       if (ignore !== null && ignore[i] === 1) continue;
-      const d = gray[i]! - prev[i]!;
+      const d = work[i]! - prev[i]!;
       if ((d >= 0 ? d : -d) >= this.threshold) mask[i] = 1;
     }
-    this.prev = gray;
+    this.prev = work;
     return { mask, w, h };
   }
 

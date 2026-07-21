@@ -1,4 +1,13 @@
-import { frameFromImageData, type FrameInput } from "framesieve";
+import {
+  frameFromImageData,
+  type Decision,
+  type FrameGate,
+  type FrameInput,
+} from "framesieve";
+import type {
+  RecordingBundle,
+  RecordingBundleFrame,
+} from "../recording-bundle.ts";
 
 /**
  * Browser capture source. The gate never samples on its own (caller-
@@ -123,4 +132,84 @@ export async function frameFromDataUrl(
   } finally {
     bitmap.close();
   }
+}
+
+export interface BrowserRecorderOptions {
+  /** Stop accepting frames after this much frame-time. Default 300000. */
+  maxDurationMs?: number;
+  /** Stop accepting after this many frames. Default 2000. */
+  maxFrames?: number;
+}
+
+export interface BrowserRecorder {
+  /**
+   * Detach, finish encoding, and return the portable bundle. Move it to
+   * Node (download, IndexedDB, postMessage) and feed it to
+   * writeRecordingBundle from "@framesieve/adapters/node" to replay.
+   */
+  stop(): Promise<RecordingBundle>;
+}
+
+/**
+ * Record frames + decisions on the client for offline replay on Node.
+ * Observes the gate via gate.tap (decisions untouched) and PNG-encodes
+ * each frame off the hot path with an OffscreenCanvas. The gate itself
+ * never touches the filesystem; this is how a browser or Electron
+ * renderer captures real frames to tune against later.
+ */
+export function createBrowserRecorder(
+  gate: FrameGate,
+  options: BrowserRecorderOptions = {},
+): BrowserRecorder {
+  const maxDurationMs = options.maxDurationMs ?? 300000;
+  const maxFrames = options.maxFrames ?? 2000;
+  const frames: RecordingBundleFrame[] = [];
+  const timeline: Decision[] = [];
+  let firstElapsedMs: number | null = null;
+  let accepted = 0;
+  let stopped = false;
+  let chain: Promise<void> = Promise.resolve();
+  let canvas: OffscreenCanvas | null = null;
+
+  async function encode(
+    data: Uint8ClampedArray<ArrayBuffer>,
+    width: number,
+    height: number,
+  ): Promise<Uint8Array> {
+    if (canvas === null || canvas.width !== width || canvas.height !== height) {
+      canvas = new OffscreenCanvas(width, height);
+    }
+    const ctx = canvas.getContext("2d");
+    if (ctx === null) throw new Error("could not get a 2d canvas context");
+    ctx.putImageData(new ImageData(data, width, height), 0, 0);
+    const blob = await canvas.convertToBlob({ type: "image/png" });
+    return new Uint8Array(await blob.arrayBuffer());
+  }
+
+  const unsubscribe = gate.tap((frame, decision) => {
+    if (stopped) return;
+    if (firstElapsedMs === null) firstElapsedMs = frame.elapsedMs;
+    if (frame.elapsedMs - firstElapsedMs > maxDurationMs || accepted >= maxFrames) {
+      stopped = true;
+      return;
+    }
+    accepted += 1;
+    const seq = accepted;
+    const { width, height, elapsedMs } = frame;
+    const snapshot = new Uint8ClampedArray(frame.data);
+    timeline.push(decision);
+    chain = chain.then(async () => {
+      const png = await encode(snapshot, width, height);
+      frames.push({ seq, elapsedMs, png });
+    });
+  });
+
+  return {
+    async stop(): Promise<RecordingBundle> {
+      stopped = true;
+      unsubscribe();
+      await chain;
+      return { format: "framesieve-recording-bundle", version: 1, frames, timeline };
+    },
+  };
 }

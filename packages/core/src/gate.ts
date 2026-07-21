@@ -2,6 +2,7 @@ import type {
   BlockChange,
   Decision,
   EmitEvent,
+  EmitErrorEvent,
   EmitMeta,
   FrameGate,
   FrameGateOptions,
@@ -44,6 +45,8 @@ class Gate implements FrameGate {
   private readonly diff: DiffEngine;
   private readonly grid: BlockGrid;
   private readonly listeners = new Set<(e: EmitEvent) => void>();
+  private readonly errorListeners = new Set<(e: EmitErrorEvent) => void>();
+  private readonly taps = new Set<(frame: FrameInput, decision: Decision) => void>();
   /** Serializes async transform results so emits arrive in order. */
   private delivery: Promise<void> = Promise.resolve();
 
@@ -69,6 +72,33 @@ class Gate implements FrameGate {
   }
 
   push(frame: FrameInput): Decision {
+    const decision = this.decide(frame);
+    if (this.taps.size > 0) {
+      // Observers see the frame at the elapsedMs the gate used (which
+      // differs from the input only when onNonMonotonic clamped it).
+      const observed =
+        frame.elapsedMs === decision.elapsedMs
+          ? frame
+          : { ...frame, elapsedMs: decision.elapsedMs };
+      for (const tap of this.taps) tap(observed, decision);
+    }
+    return decision;
+  }
+
+  /**
+   * Register a synchronous observer, called at the end of every push
+   * with the pushed frame and its Decision. Cannot affect decisions
+   * (the decision sequence is identical with or without taps), so it
+   * is the safe hook for recording/metrics. Returns an unsubscribe fn.
+   */
+  tap(observer: (frame: FrameInput, decision: Decision) => void): () => void {
+    this.taps.add(observer);
+    return () => {
+      this.taps.delete(observer);
+    };
+  }
+
+  private decide(frame: FrameInput): Decision {
     validateFrame(frame);
     if (frame.elapsedMs < this.lastElapsedMs) {
       if (this.options.policy.onNonMonotonic === "throw") {
@@ -190,9 +220,12 @@ class Gate implements FrameGate {
     const { crop } = this.options;
     const { gridCols, gridRows } = this.options.blocks;
     // Copy the frame so later caller-side mutation of the pushed
-    // buffer cannot leak into an async delivery.
+    // buffer cannot leak into an async delivery. copyFrameOnEmit=false
+    // opts out (the delivered frame then aliases the caller's buffer).
     const snapshot: FrameInput = {
-      data: new Uint8ClampedArray(frame.data),
+      data: this.options.copyFrameOnEmit
+        ? new Uint8ClampedArray(frame.data)
+        : frame.data,
       width: frame.width,
       height: frame.height,
       elapsedMs: frame.elapsedMs,
@@ -208,9 +241,12 @@ class Gate implements FrameGate {
       if (transform !== null) {
         try {
           out = await transform(snapshot, meta);
-        } catch {
+        } catch (error) {
           // Fail closed: a broken transform must not leak the frame.
+          // Surface the error to on("error") observers; the emit stays
+          // cancelled and uncounted regardless.
           out = null;
+          this.emitError(error, meta);
         }
       }
       if (out === null) {
@@ -240,14 +276,42 @@ class Gate implements FrameGate {
     });
   }
 
-  on(event: "emit", listener: (e: EmitEvent) => void): void {
-    if (event !== "emit") throw new RangeError(`unknown event: ${String(event)}`);
-    this.listeners.add(listener);
+  on(event: "emit", listener: (e: EmitEvent) => void): () => void;
+  on(event: "error", listener: (e: EmitErrorEvent) => void): () => void;
+  on(event: "emit" | "error", listener: unknown): () => void {
+    if (event === "emit") {
+      const l = listener as (e: EmitEvent) => void;
+      this.listeners.add(l);
+      return () => {
+        this.listeners.delete(l);
+      };
+    }
+    if (event === "error") {
+      const l = listener as (e: EmitErrorEvent) => void;
+      this.errorListeners.add(l);
+      return () => {
+        this.errorListeners.delete(l);
+      };
+    }
+    throw new RangeError(`unknown event: ${String(event)}`);
   }
 
-  off(event: "emit", listener: (e: EmitEvent) => void): void {
-    if (event !== "emit") throw new RangeError(`unknown event: ${String(event)}`);
-    this.listeners.delete(listener);
+  off(event: "emit", listener: (e: EmitEvent) => void): void;
+  off(event: "error", listener: (e: EmitErrorEvent) => void): void;
+  off(event: "emit" | "error", listener: unknown): void {
+    if (event === "emit") {
+      this.listeners.delete(listener as (e: EmitEvent) => void);
+    } else if (event === "error") {
+      this.errorListeners.delete(listener as (e: EmitErrorEvent) => void);
+    } else {
+      throw new RangeError(`unknown event: ${String(event)}`);
+    }
+  }
+
+  private emitError(error: unknown, meta: EmitMeta): void {
+    if (this.errorListeners.size === 0) return;
+    const event: EmitErrorEvent = { ...meta, error };
+    for (const listener of this.errorListeners) listener(event);
   }
 
   stats(): GateStats {

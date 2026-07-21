@@ -18,6 +18,7 @@ export type {
   EmitMeta,
   Crop,
   EmitEvent,
+  EmitErrorEvent,
   Decision,
   GateStats,
   FrameGate,
