@@ -34,18 +34,31 @@ export interface OcrEngine {
   recognize(frame: FrameInput): Promise<OcrWord[]> | OcrWord[];
 }
 
-export type BuiltinPattern =
-  | "email"
-  | "phone-jp"
-  | "credit-card"
-  | "my-number"
-  | "address-jp";
+/**
+ * A locale-neutral built-in pattern name. Locale-specific detectors
+ * (Japanese phone/My Number/address, etc.) are not baked in here; they
+ * ship as opt-in presets, e.g. jpPatterns from
+ * "@framesieve/redact/presets/jp", which you spread into `patterns`.
+ */
+export type BuiltinPatternName = "email" | "credit-card";
+
+/** A caller-supplied pattern: a name plus a test over one OCR word. */
+export interface PatternDef {
+  name: string;
+  test: (text: string) => boolean;
+}
+
+/** A built-in name or a custom detector. */
+export type PatternInput = BuiltinPatternName | PatternDef;
 
 export interface RedactorOptions {
   /** Always-on masks in source pixels. Deterministic; cannot miss. */
   regions?: Region[];
-  /** Built-in text patterns to mask (requires ocr). */
-  patterns?: BuiltinPattern[];
+  /**
+   * Text patterns to mask (requires ocr). Mix built-in names, opt-in
+   * presets (spread jpPatterns), and your own { name, test } detectors.
+   */
+  patterns?: PatternInput[];
   /**
    * Literal strings to mask wherever OCR reads them (requires ocr).
    * Matching is case-insensitive after Unicode NFKC normalization, so
@@ -70,24 +83,8 @@ export interface RedactorOptions {
 
 const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/;
 
-// Domestic 0X... numbers with optional separators, or +81 form.
-const PHONE_JP_RE =
-  /(?:\+81[-\s]?\d{1,4}[-\s]?\d{1,4}[-\s]?\d{3,4}|0\d{1,4}[-\s]?\d{1,4}[-\s]?\d{3,4})/;
-
-// Postal code (with or without the JIS postal mark) or
-// prefecture + municipality kanji sequences. Escapes keep the source
-// ASCII-only.
-const ADDRESS_JP_RE = new RegExp(
-  [
-    "\\u3012\\s?\\d{3}-?\\d{4}", // postal mark + code
-    "(?<!\\d)\\d{3}-\\d{4}(?!\\d)", // bare postal code (over-masks by intent)
-    // prefecture (to/dou/fu/ken) followed by municipality (shi/ku/gun/chou/son)
-    "[\\u3040-\\u30FF\\u4E00-\\u9FAF]{1,6}[\\u90FD\\u9053\\u5E9C\\u770C]" +
-      "[\\u3040-\\u30FF\\u4E00-\\u9FAF]{1,8}[\\u5E02\\u533A\\u90E1\\u753A\\u6751]",
-  ].join("|"),
-);
-
-function digitsOf(text: string): string {
+/** Strip non-digits; shared by digit-based detectors (also used by presets). */
+export function digitsOf(text: string): string {
   return text.replace(/\D/g, "");
 }
 
@@ -108,55 +105,31 @@ export function luhnValid(digits: string): boolean {
   return sum % 10 === 0;
 }
 
-/** Check-digit validation for the 12-digit Japanese My Number. */
-export function myNumberValid(digits: string): boolean {
-  if (!/^\d{12}$/.test(digits)) return false;
-  const body = digits.slice(0, 11);
-  const check = digits.charCodeAt(11) - 48;
-  let sum = 0;
-  for (let n = 1; n <= 11; n++) {
-    const p = body.charCodeAt(11 - n) - 48;
-    const q = n <= 6 ? n + 1 : n - 5;
-    sum += p * q;
-  }
-  const remainder = sum % 11;
-  const expected = remainder <= 1 ? 0 : 11 - remainder;
-  return check === expected;
-}
-
 function looksLikeCreditCard(text: string): boolean {
   if (!/^[\d\s-]+$/.test(text)) return false;
   const digits = digitsOf(text);
   return digits.length >= 13 && digits.length <= 19 && luhnValid(digits);
 }
 
-function looksLikeMyNumber(text: string): boolean {
-  if (!/^[\d\s-]+$/.test(text)) return false;
-  return myNumberValid(digitsOf(text));
-}
+/** Locale-neutral built-in detectors, resolved by name. */
+const BUILTINS: Record<string, (text: string) => boolean> = {
+  email: (text) => EMAIL_RE.test(text),
+  "credit-card": looksLikeCreditCard,
+};
 
-function matchesPattern(pattern: BuiltinPattern, text: string): boolean {
-  switch (pattern) {
-    case "email":
-      return EMAIL_RE.test(text);
-    case "phone-jp":
-      return PHONE_JP_RE.test(text) && digitsOf(text).length >= 10;
-    case "credit-card":
-      return looksLikeCreditCard(text);
-    case "my-number":
-      return looksLikeMyNumber(text);
-    case "address-jp":
-      return ADDRESS_JP_RE.test(text);
+function resolvePattern(p: PatternInput): PatternDef {
+  if (typeof p === "string") {
+    const test = BUILTINS[p];
+    if (test === undefined) throw new RangeError(`unknown pattern: ${String(p)}`);
+    return { name: p, test };
   }
+  if (typeof p?.name !== "string" || typeof p?.test !== "function") {
+    throw new TypeError(
+      "a custom pattern must be { name: string, test: (text) => boolean }",
+    );
+  }
+  return p;
 }
-
-const BUILTIN_PATTERNS: readonly BuiltinPattern[] = [
-  "email",
-  "phone-jp",
-  "credit-card",
-  "my-number",
-  "address-jp",
-];
 
 // ---------------------------------------------------------------------------
 // Masking
@@ -194,17 +167,12 @@ function normalize(text: string): string {
  */
 export function createRedactor(options: RedactorOptions = {}): EmitTransform {
   const regions = options.regions ?? [];
-  const patterns = options.patterns ?? [];
+  const patterns = (options.patterns ?? []).map(resolvePattern);
   const dictionary = (options.dictionary ?? []).map(normalize);
   const ocr = options.ocr ?? null;
   const failClosed = options.failClosed ?? false;
   const pad = options.maskPaddingPx ?? 2;
 
-  for (const p of patterns) {
-    if (!BUILTIN_PATTERNS.includes(p)) {
-      throw new RangeError(`unknown pattern: ${String(p)}`);
-    }
-  }
   const needsOcr = patterns.length > 0 || dictionary.length > 0;
   if (needsOcr && ocr === null) {
     throw new TypeError(
@@ -231,7 +199,7 @@ export function createRedactor(options: RedactorOptions = {}): EmitTransform {
       }
       for (const word of words) {
         const hit =
-          patterns.some((p) => matchesPattern(p, word.text)) ||
+          patterns.some((p) => p.test(word.text)) ||
           dictionary.some((entry) => normalize(word.text).includes(entry));
         if (hit) {
           fillRegion(data, frame.width, frame.height, word.region, pad);

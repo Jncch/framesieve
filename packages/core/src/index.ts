@@ -1,4 +1,6 @@
 export { createFrameGate } from "./gate.ts";
+export { frameFromImageData } from "./frame.ts";
+export type { ImageDataLike } from "./frame.ts";
 export { serializeDecision, parseDecisionLine } from "./serialize.ts";
 export type {
   FrameInput,

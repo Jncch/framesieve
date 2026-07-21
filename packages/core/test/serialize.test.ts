@@ -35,6 +35,7 @@ test("timeline lines round-trip byte-identically", () => {
     { seq: 3, elapsedMs: 1000, score: 0, decision: "debounced" },
     { seq: 4, elapsedMs: 1500, score: 2.05, decision: "throttled" },
     { seq: 5, elapsedMs: 60000, score: 0, decision: "emit", reason: "keepalive" },
+    { seq: 6, elapsedMs: 0, score: 16, decision: "emit", reason: "prime" },
   ];
   for (const d of samples) {
     const line = serializeDecision(d);

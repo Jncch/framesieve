@@ -7,6 +7,8 @@
  * the renderer. Only structural types cross the boundary here.
  */
 
+import { frameFromImageData, type FrameInput } from "framesieve";
+
 export {
   createDisplayMediaSource as createElectronSource,
   type BrowserSourceOptions,
@@ -47,4 +49,35 @@ export function desktopSourceConstraints(
     },
   };
   return { audio: false, video: video as unknown as MediaTrackConstraints };
+}
+
+/** The slice of Electron's NativeImage this package needs. */
+export interface NativeImageLike {
+  getSize(): { width: number; height: number };
+  /** Raw bitmap pixels in BGRA order, as Electron's toBitmap() returns. */
+  toBitmap(options?: { scaleFactor?: number }): Uint8Array;
+}
+
+/**
+ * Wrap an Electron nativeImage (e.g. a desktopCapturer thumbnail, or
+ * nativeImage from any main-process source) as a FrameInput.
+ * toBitmap() returns pixels in BGRA order; this swaps them to the RGBA
+ * the gate expects. Runs in the main process, where desktopCapturer
+ * and nativeImage live - no DOM required. For the toPNG() path, decode
+ * with frameFromPngBuffer from "@framesieve/adapters/node" instead.
+ */
+export function frameFromNativeImage(
+  image: NativeImageLike,
+  elapsedMs: number,
+): FrameInput {
+  const { width, height } = image.getSize();
+  const bgra = image.toBitmap();
+  const rgba = new Uint8ClampedArray(bgra.length);
+  for (let i = 0; i + 3 < bgra.length; i += 4) {
+    rgba[i] = bgra[i + 2]!; // R <- B
+    rgba[i + 1] = bgra[i + 1]!; // G
+    rgba[i + 2] = bgra[i]!; // B <- R
+    rgba[i + 3] = bgra[i + 3]!; // A
+  }
+  return frameFromImageData({ data: rgba, width, height }, elapsedMs);
 }

@@ -16,10 +16,14 @@
     "dist",
     "!dist/**/*.map",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "dependencies": {
     "@framesieve/adapters": "^0.1.0",
-    "framesieve": "^0.1.0"
+    "framesieve": "^0.2.0"
   }
 }

@@ -7,10 +7,16 @@ import type { EmitEvent, EmitMeta, FrameInput, Region } from "framesieve";
 import {
   createRedactor,
   luhnValid,
-  myNumberValid,
   type OcrEngine,
   type OcrWord,
 } from "../src/index.ts";
+import {
+  addressJp,
+  jpPatterns,
+  myNumber,
+  myNumberValid,
+  phoneJp,
+} from "../src/presets/jp.ts";
 
 function frame(width = 32, height = 32, level = 128): FrameInput {
   const data = new Uint8ClampedArray(width * height * 4);
@@ -106,7 +112,7 @@ test("phone-jp matches domestic and +81 forms but not short numbers", async () =
   for (const [text, expected] of cases) {
     const out = await apply(
       createRedactor({
-        patterns: ["phone-jp"],
+        patterns: [phoneJp],
         ocr: fakeOcr([{ text, region: { x: 0, y: 0, width: 4, height: 4 } }]),
       }),
       frame(),
@@ -160,7 +166,7 @@ test("my-number requires the official check digit", async () => {
   ] as Array<[string, boolean]>) {
     const out = await apply(
       createRedactor({
-        patterns: ["my-number"],
+        patterns: [myNumber],
         ocr: fakeOcr([{ text, region: { x: 0, y: 0, width: 4, height: 4 } }]),
       }),
       frame(),
@@ -180,7 +186,7 @@ test("address-jp masks postal codes and prefecture-city sequences", async () => 
   for (const [text, expected] of cases) {
     const out = await apply(
       createRedactor({
-        patterns: ["address-jp"],
+        patterns: [addressJp],
         ocr: fakeOcr([{ text, region: { x: 0, y: 0, width: 4, height: 4 } }]),
       }),
       frame(),
@@ -188,6 +194,47 @@ test("address-jp masks postal codes and prefecture-city sequences", async () => 
     assert.ok(out !== null);
     assert.equal(isBlack(out, 0, 0), expected, text);
   }
+});
+
+test("a custom { name, test } pattern masks matching words", async () => {
+  const employeeId = {
+    name: "employee-id",
+    test: (t: string) => /^EMP-\d{6}$/.test(t),
+  };
+  const cases: Array<[string, boolean]> = [
+    ["EMP-123456", true],
+    ["EMP-12", false],
+    ["hello", false],
+  ];
+  for (const [text, expected] of cases) {
+    const out = await apply(
+      createRedactor({
+        patterns: [employeeId],
+        ocr: fakeOcr([{ text, region: { x: 0, y: 0, width: 4, height: 4 } }]),
+      }),
+      frame(),
+    );
+    assert.ok(out !== null);
+    assert.equal(isBlack(out, 0, 0), expected, text);
+  }
+});
+
+test("jpPatterns spreads all JP detectors in one shot", async () => {
+  assert.deepEqual(
+    jpPatterns.map((p) => p.name),
+    ["phone-jp", "my-number", "address-jp"],
+  );
+  const out = await apply(
+    createRedactor({
+      patterns: ["email", "credit-card", ...jpPatterns],
+      ocr: fakeOcr([
+        { text: "03-1234-5678", region: { x: 0, y: 0, width: 4, height: 4 } },
+      ]),
+    }),
+    frame(),
+  );
+  assert.ok(out !== null);
+  assert.ok(isBlack(out, 0, 0)); // the JP phone was masked via the spread
 });
 
 test("dictionary matching is case-insensitive and NFKC-normalized", async () => {

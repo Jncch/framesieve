@@ -19,6 +19,10 @@
     "./tesseract": {
       "types": "./dist/tesseract.d.ts",
       "default": "./dist/tesseract.js"
+    },
+    "./presets/jp": {
+      "types": "./dist/presets/jp.d.ts",
+      "default": "./dist/presets/jp.js"
     }
   },
   "files": [
@@ -28,7 +32,7 @@
     "LICENSE"
   ],
   "peerDependencies": {
-    "framesieve": "^0.1.0",
+    "framesieve": "^0.2.0",
     "tesseract.js": ">=5"
   },
   "peerDependenciesMeta": {
@@ -37,6 +41,6 @@
     }
   },
   "devDependencies": {
-    "framesieve": "^0.1.0"
+    "framesieve": "^0.2.0"
   }
 }

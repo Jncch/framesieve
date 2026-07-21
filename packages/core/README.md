@@ -36,41 +36,107 @@ GPU, no network - just fast, deterministic pixel math.
 ## Install
 
 ```bash
-npm install framesieve            # the gate itself (zero dependencies)
+npm install framesieve                       # the gate itself (zero dependencies)
+npm install @framesieve/adapters             # capture sources, recorder, replay
+npm install -g @framesieve/cli               # the fsieve command
 ```
 
-`framesieve` (the core gate) is the only package on npm today. The
-companion packages ship on their own schedule and are not published
-yet:
+`framesieve` (the core gate, zero dependencies) and its companion
+packages `@framesieve/adapters` and `@framesieve/cli` are on npm. One
+package is still held back:
 
-- `@framesieve/adapters` (capture sources, recorder, replay) and
-  `@framesieve/cli` (the `fsieve` command) land with the v0.1 line.
 - `@framesieve/redact` (local PII masking) is planned for v0.2, after
-  it has been battle-tested in production.
-
-Examples below that import `@framesieve/*` describe those APIs; until
-the packages are on npm, run them from a clone of this repository.
+  it has been battle-tested in production; `npm install
+  @framesieve/redact` does not resolve yet. Examples below that import
+  it describe the API that will ship.
 
 ## Quick start
 
 ```ts
-import { createFrameGate } from "framesieve";
+import { createFrameGate, frameFromImageData } from "framesieve";
 
 const gate = createFrameGate({
   policy: { debounceMs: 800, minIntervalMs: 2000, maxSilenceMs: 60000 },
 });
 
 gate.on("emit", ({ frame, reason, score, changedBlocks }) => {
-  // reason: "threshold" | "keepalive"
+  // reason: "threshold" | "keepalive" | "prime"
   sendToYourVLM(frame, { reason, changedBlocks });
 });
 
-// You control the cadence. Capture however you like (Electron
-// desktopCapturer, getDisplayMedia, node) and push frames:
-setInterval(async () => {
-  gate.push(await captureFrame()); // { data, width, height, elapsedMs }
+// You control the cadence. Capture however you like, wrap the pixels
+// as a frame, and push. elapsedMs is your own monotonic clock.
+const start = performance.now();
+setInterval(() => {
+  const image = captureImageData(); // any { data, width, height }
+  gate.push(frameFromImageData(image, performance.now() - start));
 }, 500);
 ```
+
+## Feeding frames
+
+A frame is just RGBA pixels plus a timestamp:
+`{ data, width, height, elapsedMs }`. If you already hold a still image
+- a browser `ImageData`, a decoded PNG, an Electron `nativeImage`, a
+`<canvas>` readback - wrap it with `frameFromImageData` instead of
+hand-building the object:
+
+```ts
+import { frameFromImageData } from "framesieve";
+
+gate.push(frameFromImageData(imageData, elapsedMs)); // ImageData-shaped in
+```
+
+`elapsedMs` is a caller-supplied clock, and it must be monotonic:
+`push` rejects a value lower than the previous frame's. Use a monotonic
+source like `performance.now()`. A wall clock read with `Date.now()`
+can jump backwards on an NTP correction and crash a long capture; if
+you cannot guarantee monotonicity, set `policy.onNonMonotonic: "clamp"`
+to pin backwards steps to the last time instead of throwing.
+
+Source-specific decoding helpers (`ImageBitmap`, PNG buffers, Electron
+`nativeImage`) live in `@framesieve/adapters` - see below.
+
+### One frame in, one decision out
+
+`push` returns the decision synchronously, but the emitted frame is
+delivered asynchronously (a transform may be async). For a single
+consumer that just wants "the frame to send, if any", `pushForEmit`
+collapses both into one await:
+
+```ts
+const out = await gate.pushForEmit(frame);
+if (out) sendToYourVLM(out); // null when this frame was not emitted
+```
+
+This is equivalent to registering an `"emit"` listener and correlating
+by `seq`; use whichever fits your loop.
+
+## Encoding what it emits
+
+The emitted `frame` is raw RGBA at the resolution you pushed - the diff
+runs on an internal downsample, but you get the full frame back, ready
+to encode. framesieve never re-encodes for you (picking JPEG quality or
+a provider's expected format is your call):
+
+```ts
+// browser: RGBA -> JPEG/PNG blob
+const canvas = new OffscreenCanvas(frame.width, frame.height);
+canvas
+  .getContext("2d")
+  .putImageData(new ImageData(frame.data, frame.width, frame.height), 0, 0);
+const blob = await canvas.convertToBlob({ type: "image/jpeg", quality: 0.8 });
+
+// node: RGBA -> PNG (zero-dependency encoder in the adapters package)
+import { encodePng } from "@framesieve/adapters/node";
+const png = encodePng(frame);
+```
+
+Diff cheap, send sharp: you push one frame and get that same frame
+back, so pushing at full resolution already gives you a high-quality
+frame to send while the diff cost stays on the downsample. To diff a
+small frame but send a larger one, keep your own high-resolution buffer
+keyed by the emit's `seq` and look it up when the gate emits.
 
 ## How it decides
 
@@ -92,7 +158,10 @@ Three stages, all deterministic:
 
 On top of the score, gate policies shape the output stream: debounce
 (wait for transitions to settle), minimum interval, keepalive frames
-during long silence, and static ignore regions.
+during long silence, and static ignore regions. Set
+`policy.primeOnFirstFrame` to emit the very first frame immediately
+(reason "prime") when an observer needs the current state right away
+instead of waiting for the stream to settle.
 
 ## Tuning without guesswork: record and replay
 
@@ -101,9 +170,8 @@ framesieve ships a recorder and a replay CLI so you tune against your
 real screen, offline.
 
 > The recorder and replay live in `@framesieve/adapters`, and the
-> `fsieve` command in `@framesieve/cli`. Both land with the v0.1 line
-> and are not on npm yet; run these from a clone of the repository for
-> now.
+> `fsieve` command in `@framesieve/cli` (`npm install -g
+> @framesieve/cli`).
 
 ```bash
 # capture a few minutes of your actual usage: wrap your gate with
@@ -134,17 +202,29 @@ leaves the machine. Runs fully locally.
 
 ```ts
 import { createRedactor } from "@framesieve/redact";
+import { jpPatterns } from "@framesieve/redact/presets/jp";
 import { tesseractAdapter } from "@framesieve/redact/tesseract";
 
 const redact = createRedactor({
   regions: [{ x: 0, y: 0, width: 320, height: 1080 }], // always-on masks
-  patterns: ["email", "phone-jp", "credit-card", "my-number", "address-jp"],
+  patterns: [
+    "email",
+    "credit-card", // locale-neutral built-ins
+    ...jpPatterns, // opt-in JP preset: phone, My Number, address
+    { name: "employee-id", test: (t) => /^EMP-\d{6}$/.test(t) }, // your own
+  ],
   dictionary: ["Tanaka Taro", "ACME Corp"], // names you must protect
   ocr: tesseractAdapter(), // pluggable; or bring your own OcrEngine
 });
 
 const gate = createFrameGate({ transform: redact });
 ```
+
+Built-in pattern names are locale-neutral (`email`, `credit-card`).
+Country-specific formats are opt-in presets - Japanese phone, My
+Number and address ship as `@framesieve/redact/presets/jp` - and any
+`{ name, test }` object works as a custom detector, so redact itself
+bakes in no locale.
 
 The tesseract.js adapter loads tesseract.js lazily and declares it as
 an optional peer dependency; install it only if you use this adapter.

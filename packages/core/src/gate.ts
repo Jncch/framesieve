@@ -58,6 +58,9 @@ class Gate implements FrameGate {
   /** Stats: frames actually delivered (post-transform). */
   private delivered = 0;
   private lastDeliveredMs: number | null = null;
+  /** This push's emit result (post-transform frame or null), for
+   * pushForEmit. Set synchronously by recordEmit, cleared each push. */
+  private lastEmitOut: Promise<FrameInput | null> | null = null;
 
   constructor(options: ResolvedOptions) {
     this.options = options;
@@ -68,12 +71,19 @@ class Gate implements FrameGate {
   push(frame: FrameInput): Decision {
     validateFrame(frame);
     if (frame.elapsedMs < this.lastElapsedMs) {
-      throw new RangeError(
-        `elapsedMs must not decrease (got ${frame.elapsedMs} after ${this.lastElapsedMs})`,
-      );
+      if (this.options.policy.onNonMonotonic === "throw") {
+        throw new RangeError(
+          `elapsedMs must not decrease (got ${frame.elapsedMs} after ${this.lastElapsedMs})`,
+        );
+      }
+      // clamp: pin to the last seen time so a backwards wall clock
+      // (e.g. an NTP correction) does not crash a long capture.
+      // Deterministic: depends only on lastElapsedMs.
+      frame = { ...frame, elapsedMs: this.lastElapsedMs };
     }
     this.lastElapsedMs = frame.elapsedMs;
     this.seq += 1;
+    this.lastEmitOut = null;
     if (this.silenceBaseMs === null) this.silenceBaseMs = frame.elapsedMs;
 
     const judgment = this.grid.step(this.diff.step(frame));
@@ -90,6 +100,24 @@ class Gate implements FrameGate {
       score,
       decision: "skip",
     };
+
+    // Prime: force the very first frame out so an observer gets the
+    // current state immediately, without waiting for debounce. Bypasses
+    // pending/keepalive entirely; those govern later frames.
+    if (this.options.policy.primeOnFirstFrame && this.seq === 1) {
+      const meta: EmitMeta = {
+        seq: this.seq,
+        elapsedMs: frame.elapsedMs,
+        reason: "prime",
+        score,
+        changedBlocks,
+      };
+      this.recordEmit(frame, meta);
+      this.pending = null;
+      decision.decision = "emit";
+      decision.reason = "prime";
+      return decision;
+    }
 
     if (this.pending !== null) {
       const stableFor = frame.elapsedMs - this.pending.sinceMs;
@@ -123,6 +151,15 @@ class Gate implements FrameGate {
       this.emitKeepalive(frame, decision);
     }
     return decision;
+  }
+
+  async pushForEmit(frame: FrameInput): Promise<FrameInput | null> {
+    const decision = this.push(frame);
+    if (decision.decision !== "emit") return null;
+    // recordEmit set lastEmitOut synchronously during push(); capture it
+    // before any await so a concurrent push cannot swap it out.
+    const out = this.lastEmitOut;
+    return out === null ? null : out;
   }
 
   private keepaliveDue(elapsedMs: number): boolean {
@@ -160,6 +197,12 @@ class Gate implements FrameGate {
       height: frame.height,
       elapsedMs: frame.elapsedMs,
     };
+    // Surface this emit's post-transform result so pushForEmit can
+    // await exactly the frame this push produced, in delivery order.
+    let resolveOut!: (out: FrameInput | null) => void;
+    this.lastEmitOut = new Promise<FrameInput | null>((r) => {
+      resolveOut = r;
+    });
     this.delivery = this.delivery.then(async () => {
       let out: FrameInput | null = snapshot;
       if (transform !== null) {
@@ -170,7 +213,10 @@ class Gate implements FrameGate {
           out = null;
         }
       }
-      if (out === null) return;
+      if (out === null) {
+        resolveOut(null);
+        return;
+      }
       // Only frames that survive the transform count as emitted:
       // stats answer "what actually left the machine".
       this.delivered += 1;
@@ -190,6 +236,7 @@ class Gate implements FrameGate {
       for (const listener of this.listeners) {
         listener(event);
       }
+      resolveOut(out);
     });
   }
 
@@ -226,6 +273,7 @@ class Gate implements FrameGate {
     this.silenceBaseMs = null;
     this.delivered = 0;
     this.lastDeliveredMs = null;
+    this.lastEmitOut = null;
   }
 }
 

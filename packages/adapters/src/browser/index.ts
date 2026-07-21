@@ -1,4 +1,4 @@
-import type { FrameInput } from "framesieve";
+import { frameFromImageData, type FrameInput } from "framesieve";
 
 /**
  * Browser capture source. The gate never samples on its own (caller-
@@ -87,4 +87,40 @@ export async function captureDisplay(
     constraints ?? { video: true, audio: false },
   );
   return createDisplayMediaSource(stream, options);
+}
+
+/**
+ * Wrap an ImageBitmap (createImageBitmap output, a decoded <img>, a
+ * VideoFrame) as a FrameInput by reading its pixels off an
+ * OffscreenCanvas. For the still-image case where you already hold a
+ * bitmap rather than a live stream.
+ */
+export function frameFromBitmap(
+  bitmap: ImageBitmap,
+  elapsedMs: number,
+): FrameInput {
+  const { width, height } = bitmap;
+  const canvas = new OffscreenCanvas(width, height);
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (ctx === null) throw new Error("could not get a 2d canvas context");
+  ctx.drawImage(bitmap, 0, 0);
+  return frameFromImageData(ctx.getImageData(0, 0, width, height), elapsedMs);
+}
+
+/**
+ * Decode an image URL (a data: URL, a blob: URL, or any fetchable
+ * image) into a FrameInput. Convenience over
+ * createImageBitmap + frameFromBitmap.
+ */
+export async function frameFromDataUrl(
+  url: string,
+  elapsedMs: number,
+): Promise<FrameInput> {
+  const blob = await (await fetch(url)).blob();
+  const bitmap = await createImageBitmap(blob);
+  try {
+    return frameFromBitmap(bitmap, elapsedMs);
+  } finally {
+    bitmap.close();
+  }
 }

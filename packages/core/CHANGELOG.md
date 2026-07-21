@@ -3,6 +3,24 @@
 Notable changes to `framesieve`. Pre-1.0 the API may change between
 minor versions; breaking changes are called out here.
 
+## 0.2.0
+
+- New `frameFromImageData(image, elapsedMs)` helper: the one-line entry
+  point for feeding a still image (a browser `ImageData`, a decoded
+  PNG, a canvas readback) instead of hand-building a `FrameInput`.
+- New `gate.pushForEmit(frame)`: push and await the frame an "emit"
+  listener would receive (or null), for single-consumer loops that do
+  not want to register a listener and correlate by seq.
+- New `policy.primeOnFirstFrame` (default false): emit the first frame
+  immediately with reason "prime", for observers that need the current
+  state right away. Adds "prime" to the emit reason set.
+- New `policy.onNonMonotonic` ("throw" | "clamp", default "throw"):
+  clamp a backwards elapsedMs to the last seen time instead of throwing,
+  for callers that cannot guarantee a monotonic clock.
+- The package now ships a CommonJS build alongside ESM, so
+  `require("framesieve")` works (e.g. from an Electron main/preload).
+  No behavior change; decisions for existing recordings are unchanged.
+
 ## 0.1.3
 
 - Expose `./package.json` in the package `exports` map so tools that

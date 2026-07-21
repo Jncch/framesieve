@@ -1,9 +1,16 @@
 name: publish
 
-# Publishes the framesieve package to npm via OIDC trusted publishing
+# Publishes the framesieve packages to npm via OIDC trusted publishing
 # (no NPM_TOKEN secret). Triggers when a v* tag is pushed. Bump the
-# version in packages/core/package.json, commit, then:
+# version(s), commit, then:
 #   git tag vX.Y.Z && git push origin vX.Y.Z
+#
+# Each package is published only if its current version is not already
+# on npm, so re-tagging is idempotent and a tag can carry a new version
+# of any subset of packages. NOTE: a package must exist on npm with a
+# configured Trusted Publisher before the workflow can publish it; the
+# very first publish of a new package name is done manually (see
+# packages/*/CHANGELOG.md history).
 on:
   push:
     tags:
@@ -26,14 +33,21 @@ jobs:
       - run: npm run lint
       - run: npm run build
       - run: npm test
-      # Publishes only the core package (name: framesieve). Provenance
-      # is attached automatically under trusted publishing. Skips when
-      # the version is already on npm, so re-tagging is idempotent.
-      - name: Publish framesieve if the version is new
+      - run: npm run smoke:pack
+      # Publish each package whose current version is not yet on npm, in
+      # dependency order (core, then adapters, then cli). Provenance is
+      # attached automatically under trusted publishing. redact is
+      # intentionally not listed: it stays unpublished until v0.2.
+      - name: Publish new package versions
         run: |
-          version=$(node -p "require('./packages/core/package.json').version")
-          if npm view "framesieve@${version}" version >/dev/null 2>&1; then
-            echo "framesieve@${version} already published; skipping."
-          else
-            npm publish --workspace framesieve
-          fi
+          set -e
+          for pkg in packages/core packages/adapters packages/cli; do
+            name=$(node -p "require('./$pkg/package.json').name")
+            version=$(node -p "require('./$pkg/package.json').version")
+            if npm view "$name@$version" version >/dev/null 2>&1; then
+              echo "$name@$version already published; skipping."
+            else
+              echo "Publishing $name@$version ..."
+              npm publish --workspace "$name"
+            fi
+          done

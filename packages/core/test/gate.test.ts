@@ -395,6 +395,31 @@ test("elapsedMs must not decrease", () => {
   gate.push(at(base, 500)); // equal is allowed
 });
 
+test("onNonMonotonic clamp pins a backwards clock instead of throwing", () => {
+  const gate = createFrameGate({
+    ...GRID,
+    policy: { onNonMonotonic: "clamp", debounceMs: 0, minIntervalMs: 0, maxSilenceMs: 0 },
+  });
+  gate.push(at(base, 1000));
+  const d = gate.push(at(base, 400)); // backwards: clamped to 1000
+  assert.equal(d.elapsedMs, 1000);
+  assert.equal(d.seq, 2);
+  // A later forward time resumes normally.
+  const d2 = gate.push(at(base, 1500));
+  assert.equal(d2.elapsedMs, 1500);
+});
+
+test("resolveOptions rejects an unknown onNonMonotonic", () => {
+  assert.throws(
+    () =>
+      createFrameGate({
+        // deliberately invalid value from a JS caller
+        policy: { onNonMonotonic: "skip" as unknown as "throw" },
+      }),
+    /unknown policy.onNonMonotonic/,
+  );
+});
+
 test("same frame sequence produces the identical decision sequence", () => {
   const frames = [
     at(base, 0),
@@ -411,4 +436,106 @@ test("same frame sequence produces the identical decision sequence", () => {
   const a = decisions(createFrameGate(opts), frames);
   const b = decisions(createFrameGate(opts), frames);
   assert.deepEqual(a, b);
+});
+
+test("primeOnFirstFrame changes only the first decision (default vs on)", () => {
+  const frames = [
+    at(base, 0), // vs black baseline: whole screen crosses -> pending
+    blocksChanged(base, 3, 220, 1000), // real change
+    at(blocksChanged(base, 3, 220, 0), 2000), // stable settled state
+  ];
+  const opts: FrameGateOptions = {
+    ...GRID,
+    policy: { debounceMs: 800, minIntervalMs: 2000, maxSilenceMs: 0 },
+  };
+  const off = decisions(createFrameGate(opts), frames).map((x) => [
+    x.decision,
+    x.reason ?? null,
+  ]);
+  const on = decisions(
+    createFrameGate({ ...opts, policy: { ...opts.policy, primeOnFirstFrame: true } }),
+    frames,
+  ).map((x) => [x.decision, x.reason ?? null]);
+
+  // Default: the first frame waits for debounce; nothing leaves early.
+  assert.deepEqual(off, [
+    ["debounced", null],
+    ["debounced", null],
+    ["emit", "threshold"],
+  ]);
+  // Primed: the first frame goes out immediately; the rest is unchanged.
+  assert.deepEqual(on, [
+    ["emit", "prime"],
+    ["debounced", null],
+    ["emit", "threshold"],
+  ]);
+});
+
+test("prime emits the first frame even when nothing crossed the threshold", async () => {
+  const black = solidFrame(64, 64, 0, 0); // identical to the baseline
+  const gate = createFrameGate({
+    ...GRID,
+    policy: { primeOnFirstFrame: true, debounceMs: 800, minIntervalMs: 2000 },
+  });
+  const events: EmitEvent[] = [];
+  gate.on("emit", (e) => events.push(e));
+  const d = gate.push(black);
+  assert.equal(d.decision, "emit");
+  assert.equal(d.reason, "prime");
+  assert.equal(d.score, 0); // no blocks changed vs the black baseline
+  await settled();
+  assert.equal(events.length, 1);
+  assert.equal(events[0]!.reason, "prime");
+  assert.equal(events[0]!.seq, 1);
+});
+
+test("prime fires once; the second frame follows normal policy", () => {
+  const gate = createFrameGate({
+    ...GRID,
+    policy: { primeOnFirstFrame: true, debounceMs: 800, minIntervalMs: 2000, maxSilenceMs: 0 },
+  });
+  const d0 = gate.push(at(base, 0));
+  const d1 = gate.push(at(base, 100)); // identical: no change, no re-prime
+  assert.deepEqual([d0.decision, d0.reason], ["emit", "prime"]);
+  assert.equal(d1.decision, "skip");
+  assert.equal(d1.reason, undefined);
+});
+
+const OPEN: FrameGateOptions = {
+  ...GRID,
+  policy: { debounceMs: 0, minIntervalMs: 0, maxSilenceMs: 0 },
+};
+
+test("pushForEmit resolves the emitted frame on emit", async () => {
+  const gate = createFrameGate(OPEN);
+  const out = await gate.pushForEmit(at(base, 0));
+  assert.ok(out);
+  assert.equal(out!.width, 64);
+  assert.equal(out!.height, 64);
+  assert.equal(out!.elapsedMs, 0);
+});
+
+test("pushForEmit resolves null when the frame does not emit", async () => {
+  const gate = createFrameGate(OPEN);
+  await gate.pushForEmit(at(base, 0)); // first frame emits
+  // One changed block is below minChangedBlocks (2): a skip.
+  const out = await gate.pushForEmit(blocksChanged(base, 1, 220, 500));
+  assert.equal(out, null);
+});
+
+test("pushForEmit resolves null when the transform cancels the emit", async () => {
+  const gate = createFrameGate({ ...OPEN, transform: () => null });
+  const out = await gate.pushForEmit(at(base, 0));
+  assert.equal(out, null);
+});
+
+test("pushForEmit returns the transformed frame, not the raw one", async () => {
+  const gate = createFrameGate({
+    ...OPEN,
+    transform: (f) => ({ ...f, data: new Uint8ClampedArray(f.data.length) }),
+  });
+  const out = await gate.pushForEmit(at(base, 0));
+  assert.ok(out);
+  assert.equal(out!.data[0], 0); // zeroed by the transform
+  assert.equal(gate.stats().framesEmitted, 1);
 });

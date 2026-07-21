@@ -57,6 +57,12 @@ export function resolveOptions(options: FrameGateOptions = {}): ResolvedOptions 
   if (!DIFF_ALGORITHMS.includes(algorithm)) {
     throw new RangeError(`unknown diff algorithm: ${String(algorithm)}`);
   }
+  const onNonMonotonic = options.policy?.onNonMonotonic ?? "throw";
+  if (onNonMonotonic !== "throw" && onNonMonotonic !== "clamp") {
+    throw new RangeError(
+      `unknown policy.onNonMonotonic: ${String(onNonMonotonic)}`,
+    );
+  }
   return {
     diff: {
       algorithm,
@@ -115,6 +121,8 @@ export function resolveOptions(options: FrameGateOptions = {}): ResolvedOptions 
         0,
         Number.MAX_SAFE_INTEGER,
       ),
+      primeOnFirstFrame: options.policy?.primeOnFirstFrame ?? false,
+      onNonMonotonic,
       ignoreRegions: (options.policy?.ignoreRegions ?? []).map((r, i) =>
         checkRegion(`policy.ignoreRegions[${i}]`, r),
       ),

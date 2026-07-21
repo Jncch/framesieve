@@ -1,0 +1,17 @@
+# Changelog
+
+Notable changes to `@framesieve/adapters`. Pre-1.0 the API may change
+between minor versions.
+
+## 0.1.0
+
+- Initial release. Capture sources for the browser (getDisplayMedia
+  stream wrapper), Electron (the desktopCapturer constraints
+  handshake), and node; a from-scratch zero-dependency PNG codec; the
+  recorder and the pure `replay` function behind `fsieve replay`.
+- Still-image entry helpers that build a `FrameInput` from decoded
+  pixels: `frameFromBitmap` and `frameFromDataUrl` (browser),
+  `frameFromPngBuffer` (node), and `frameFromNativeImage` (Electron
+  main process, BGRA to RGBA).
+- Ships both ESM and CommonJS builds, so the node and electron entries
+  can be `require`d from an Electron main/preload or a CJS script.

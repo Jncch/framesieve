@@ -1,4 +1,5 @@
 export { decodePng, encodePng, type RawImage } from "./png.ts";
+export { frameFromPngBuffer } from "./frame.ts";
 export {
   createRecorder,
   readRecording,

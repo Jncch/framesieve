@@ -75,12 +75,25 @@ score, not inside it. Two reasons:
 - Replay sweeps vary scoring and policy parameters independently;
   mixing the layers would make sweep results uninterpretable.
 
+primeOnFirstFrame lives in this layer too: it forces the first frame
+out (reason "prime") regardless of score, for observers that want the
+current state immediately rather than the settled one. It is off by
+default so the decision sequence of existing recordings is unchanged.
+
 ## Decision 4: push model, caller-owned time
 
 The gate never samples, schedules, or reads a clock. The caller
 pushes frames with elapsedMs. This single decision is what makes
 recordings replayable bit-for-bit and tests trivially deterministic.
 Any feature that needs "time" must take it from elapsedMs.
+
+elapsedMs must be monotonic; a decreasing value throws by default.
+onNonMonotonic: "clamp" pins a backwards step to the last seen time
+instead, so a non-monotonic wall clock (an NTP correction) cannot
+crash a long capture. Clamp is a pure function of the prior elapsedMs,
+so determinism at the sequence level is preserved. frameFromImageData
+is the caller-side helper for building a frame from decoded pixels; it
+too takes no clock, keeping the "caller owns time" boundary intact.
 
 ## Decision 5: stats count delivered frames, not decisions
 
@@ -111,6 +124,8 @@ flush() resolves when all pending deliveries have settled.
 | debounceMs         | 800     | provisional                               |
 | minIntervalMs      | 2000    | provisional                               |
 | maxSilenceMs       | 60000   | provisional                               |
+| primeOnFirstFrame  | false   | opt-in; forces the first frame out        |
+| onNonMonotonic     | throw   | clamp available for non-monotonic clocks  |
 
 All defaults are provisional until calibrated against recordings from
 the production meeting-room deployment. When calibration happens,

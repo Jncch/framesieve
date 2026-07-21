@@ -13,25 +13,47 @@
   "types": "./dist/node/index.d.ts",
   "exports": {
     "./node": {
-      "types": "./dist/node/index.d.ts",
-      "default": "./dist/node/index.js"
+      "import": {
+        "types": "./dist/node/index.d.ts",
+        "default": "./dist/node/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/node/index.d.ts",
+        "default": "./dist/cjs/node/index.js"
+      }
     },
     "./browser": {
-      "types": "./dist/browser/index.d.ts",
-      "default": "./dist/browser/index.js"
+      "import": {
+        "types": "./dist/browser/index.d.ts",
+        "default": "./dist/browser/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/browser/index.d.ts",
+        "default": "./dist/cjs/browser/index.js"
+      }
     },
     "./electron": {
-      "types": "./dist/electron/index.d.ts",
-      "default": "./dist/electron/index.js"
+      "import": {
+        "types": "./dist/electron/index.d.ts",
+        "default": "./dist/electron/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/electron/index.d.ts",
+        "default": "./dist/cjs/electron/index.js"
+      }
     }
   },
   "files": [
     "dist",
     "!dist/**/*.map",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "dependencies": {
-    "framesieve": "^0.1.0"
+    "framesieve": "^0.2.0"
   }
 }

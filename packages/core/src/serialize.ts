@@ -11,7 +11,7 @@ import type { Decision, EmitReason } from "./types.ts";
  */
 
 const DECISIONS = ["emit", "skip", "debounced", "throttled"] as const;
-const REASONS: readonly EmitReason[] = ["threshold", "keepalive"];
+const REASONS: readonly EmitReason[] = ["threshold", "keepalive", "prime"];
 
 export function serializeDecision(d: Decision): string {
   const reason =

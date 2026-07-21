@@ -12,12 +12,14 @@
     "node": ">=24"
   },
   "scripts": {
-    "build": "tsc -b",
+    "build": "tsc -b && npm run build:cjs",
+    "build:cjs": "tsc -p packages/core/tsconfig.cjs.json && tsc -p packages/adapters/tsconfig.cjs.json && node scripts/emit-cjs-markers.mjs",
     "clean": "tsc -b --clean",
     "test": "npm run build && node --test \"packages/*/test/**/*.test.ts\"",
     "test:core": "node --test \"packages/core/test/**/*.test.ts\"",
     "lint": "node scripts/check-invariants.mjs",
-    "typecheck": "tsc -b && tsc -p tsconfig.tests.json"
+    "typecheck": "tsc -b && tsc -p tsconfig.tests.json",
+    "smoke:pack": "node scripts/smoke-pack.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

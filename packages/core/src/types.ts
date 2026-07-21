@@ -16,7 +16,12 @@
 // Frame input
 // ---------------------------------------------------------------------------
 
-/** A single captured frame. `elapsedMs` is caller-supplied relative time. */
+/**
+ * A single captured frame. Structurally this is a DOM `ImageData`
+ * (`data`/`width`/`height`) plus a caller-supplied `elapsedMs`. If you
+ * already hold an `ImageData`, a decoded PNG, or a canvas readback, use
+ * `frameFromImageData(image, elapsedMs)` instead of hand-building this.
+ */
 export interface FrameInput {
   /** Raw RGBA pixels, row-major. Length must be width * height * 4. */
   data: Uint8ClampedArray;
@@ -105,6 +110,22 @@ export interface PolicyOptions {
    * even without changes. Set to 0 to disable. Default: 60000.
    */
   maxSilenceMs?: number;
+  /**
+   * Emit the very first frame immediately (reason "prime"), bypassing
+   * debounce and minInterval, so an observer gets the current state
+   * right away instead of waiting for the stream to settle. Applies
+   * only to the first frame after construction/reset. Default: false.
+   */
+  primeOnFirstFrame?: boolean;
+  /**
+   * What to do when a frame's elapsedMs is less than the previous
+   * frame's. "throw" (default) rejects it with a RangeError; "clamp"
+   * pins it to the last seen time and continues. Use "clamp" only if
+   * you cannot guarantee a monotonic clock: a plain wall clock can move
+   * backwards when an NTP correction fires, whereas a monotonic timer
+   * never triggers either path. Default: "throw".
+   */
+  onNonMonotonic?: "throw" | "clamp";
   /** Static regions to exclude from diff entirely (e.g. a clock). */
   ignoreRegions?: Region[];
 }
@@ -151,7 +172,9 @@ export type EmitReason =
   /** Change score exceeded the configured gate. */
   | "threshold"
   /** maxSilenceMs elapsed without an emit. */
-  | "keepalive";
+  | "keepalive"
+  /** First frame, forced out by policy.primeOnFirstFrame. */
+  | "prime";
 
 export interface BlockChange {
   col: number;
@@ -225,6 +248,15 @@ export interface FrameGate {
    * transform hook resolves).
    */
   push(frame: FrameInput): Decision;
+  /**
+   * Push a frame and resolve with the frame an "emit" listener would
+   * receive: the post-transform frame when this frame emits, or null
+   * when it does not emit (or the transform cancelled it). A
+   * convenience for single-consumer loops that would otherwise register
+   * a listener and correlate by seq. The returned Decision sequence is
+   * identical to push(); only the delivery is surfaced inline.
+   */
+  pushForEmit(frame: FrameInput): Promise<FrameInput | null>;
   on(event: "emit", listener: (e: EmitEvent) => void): void;
   off(event: "emit", listener: (e: EmitEvent) => void): void;
   stats(): GateStats;
