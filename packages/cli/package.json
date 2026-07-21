@@ -10,7 +10,7 @@
     "directory": "packages/cli"
   },
   "bin": {
-    "fsieve": "./dist/main.js"
+    "fsieve": "dist/main.js"
   },
   "files": [
     "dist",
