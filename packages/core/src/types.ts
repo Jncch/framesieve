@@ -52,6 +52,26 @@ export type DiffAlgorithm =
    */
   | "edge";
 
+export type DiffMode =
+  /**
+   * Compare each frame against the immediately preceding frame.
+   * Default. Any frame-to-frame delta counts, so a transient overlay
+   * registers both when it appears and again when it disappears.
+   */
+  | "previous"
+  /**
+   * Compare each frame against the last emitted frame (the committed
+   * baseline). A change that appears and then reverts to the baseline
+   * before it persists is dropped as transient; a change that persists
+   * for policy.referencePersistMs is emitted and becomes the new
+   * baseline. adaptiveMask still down-weights chronically moving
+   * regions (it keys off frame-to-frame motion, not baseline
+   * divergence). This is a temporal filter, not a semantic one:
+   * whether a persistent change matters is the caller's/VLM's call.
+   * Opt-in.
+   */
+  | "reference";
+
 export interface Region {
   x: number;
   y: number;
@@ -62,6 +82,14 @@ export interface Region {
 export interface DiffOptions {
   /** Diff algorithm. Default: "downsample". */
   algorithm?: DiffAlgorithm;
+  /**
+   * Diff comparison baseline. "previous" (default) compares consecutive
+   * frames; "reference" compares against the last emitted frame, so a
+   * transient change that reverts is dropped and only a change that
+   * persists (see policy.referencePersistMs) is emitted. Default:
+   * "previous".
+   */
+  mode?: DiffMode;
   /**
    * Downsample factor for "downsample" algorithm. The frame is reduced
    * to (width/factor) x (height/factor) grayscale. Default: 8.
@@ -124,6 +152,16 @@ export interface PolicyOptions {
    * only to the first frame after construction/reset. Default: false.
    */
   primeOnFirstFrame?: boolean;
+  /**
+   * Only used when diff.mode is "reference": the minimum time a
+   * divergence from the last emitted frame must persist before it is
+   * emitted. A change that reverts to the baseline sooner is dropped as
+   * transient. This is the reference-mode analog of debounceMs (which
+   * keeps its "settle after motion" meaning in the default "previous"
+   * mode). Ignored in "previous" mode. Evaluated against elapsedMs.
+   * Default: 3000.
+   */
+  referencePersistMs?: number;
   /**
    * What to do when a frame's elapsedMs is less than the previous
    * frame's. "throw" (default) rejects it with a RangeError; "clamp"

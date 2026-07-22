@@ -3,6 +3,7 @@ import type {
   BlockOptions,
   CropOptions,
   DiffAlgorithm,
+  DiffMode,
   DiffOptions,
   EmitTransform,
   FrameGateOptions,
@@ -27,6 +28,8 @@ const DIFF_ALGORITHMS: readonly DiffAlgorithm[] = [
   "pixel",
   "edge",
 ];
+
+const DIFF_MODES: readonly DiffMode[] = ["previous", "reference"];
 
 function checkInt(name: string, value: number, min: number): number {
   if (!Number.isInteger(value) || value < min) {
@@ -62,6 +65,10 @@ export function resolveOptions(options: FrameGateOptions = {}): ResolvedOptions 
   if (!DIFF_ALGORITHMS.includes(algorithm)) {
     throw new RangeError(`unknown diff algorithm: ${String(algorithm)}`);
   }
+  const mode = options.diff?.mode ?? "previous";
+  if (!DIFF_MODES.includes(mode)) {
+    throw new RangeError(`unknown diff mode: ${String(mode)}`);
+  }
   const onNonMonotonic = options.policy?.onNonMonotonic ?? "throw";
   if (onNonMonotonic !== "throw" && onNonMonotonic !== "clamp") {
     throw new RangeError(
@@ -71,6 +78,7 @@ export function resolveOptions(options: FrameGateOptions = {}): ResolvedOptions 
   return {
     diff: {
       algorithm,
+      mode,
       downsampleFactor: checkInt(
         "diff.downsampleFactor",
         options.diff?.downsampleFactor ?? 8,
@@ -127,6 +135,12 @@ export function resolveOptions(options: FrameGateOptions = {}): ResolvedOptions 
         Number.MAX_SAFE_INTEGER,
       ),
       primeOnFirstFrame: options.policy?.primeOnFirstFrame ?? false,
+      referencePersistMs: checkNumber(
+        "policy.referencePersistMs",
+        options.policy?.referencePersistMs ?? 3000,
+        0,
+        Number.MAX_SAFE_INTEGER,
+      ),
       onNonMonotonic,
       ignoreRegions: (options.policy?.ignoreRegions ?? []).map((r, i) =>
         checkRegion(`policy.ignoreRegions[${i}]`, r),

@@ -129,3 +129,18 @@ function writeSequence(name: string, frames: Canvas[]): void {
   }
   writeSequence("video-noise", frames);
 }
+
+// tooltip-blip: a static slide with a tooltip overlay that appears for a
+// few frames, then reverts completely to the slide. Exercises reference
+// mode (the transient is dropped) vs previous mode (it registers on
+// appear and again on disappear).
+{
+  const bg = slide(4);
+  const withTip = new Uint8ClampedArray(bg);
+  fillRect(withTip, 192, 56, 72, 48, 20); // opaque tooltip box
+  const seq = [bg, bg, bg, withTip, withTip, withTip, bg, bg, bg, bg];
+  writeSequence(
+    "tooltip-blip",
+    seq.map((c) => new Uint8ClampedArray(c)),
+  );
+}

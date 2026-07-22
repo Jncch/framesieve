@@ -3,6 +3,12 @@
 Notable changes to `@framesieve/adapters`. Pre-1.0 the API may change
 between minor versions.
 
+## 0.3.0
+
+- Requires `framesieve` `^0.4.0` (adds the opt-in reference diff mode in
+  core). No adapter API changes; recorder and replay pass through
+  `diff.mode` like any other gate option.
+
 ## 0.2.0
 
 - The node recorder now observes the gate via `gate.tap` instead of

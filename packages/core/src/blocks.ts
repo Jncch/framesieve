@@ -47,10 +47,20 @@ export class BlockGrid {
     this.historySum = new Uint32Array(this.cols * this.rows);
   }
 
-  step(cm: ChangeMask): BlockJudgment {
-    const { mask, w, h } = cm;
+  /**
+   * `score` gates the emit (changed vs the comparison baseline);
+   * `motion` (changed vs the previous frame) drives the adaptive
+   * weight, so a chronically moving region is down-weighted even in
+   * reference mode where a held overlay stays diverged from the
+   * baseline. In "previous" mode the two masks are the same buffer and
+   * this reduces exactly to the single-mask behavior.
+   */
+  step(score: ChangeMask, motion: ChangeMask = score): BlockJudgment {
+    const { mask: sMask, w, h } = score;
+    const mMask = motion.mask;
+    const sameMask = mMask === sMask;
     const changedBlocks: BlockChange[] = [];
-    let score = 0;
+    let scoreSum = 0;
     for (let row = 0; row < this.rows; row++) {
       const y0 = Math.floor((row * h) / this.rows);
       const y1 = Math.floor(((row + 1) * h) / this.rows);
@@ -58,32 +68,40 @@ export class BlockGrid {
         const x0 = Math.floor((col * w) / this.cols);
         const x1 = Math.floor(((col + 1) * w) / this.cols);
         const total = (x1 - x0) * (y1 - y0);
-        let changed = 0;
+        let sChanged = 0;
+        let mChanged = 0;
         for (let y = y0; y < y1; y++) {
           const base = y * w;
           for (let x = x0; x < x1; x++) {
-            changed += mask[base + x]!;
+            sChanged += sMask[base + x]!;
+            if (!sameMask) mChanged += mMask[base + x]!;
           }
         }
-        const ratio = total === 0 ? 0 : changed / total;
-        const isChanged = changed > 0 && ratio >= this.ratioThreshold;
+        if (sameMask) mChanged = sChanged;
+        const sRatio = total === 0 ? 0 : sChanged / total;
+        const mRatio = total === 0 ? 0 : mChanged / total;
+        const isChangedScore = sChanged > 0 && sRatio >= this.ratioThreshold;
+        const isChangedMotion = mChanged > 0 && mRatio >= this.ratioThreshold;
         const block = row * this.cols + col;
-        if (isChanged) {
+        if (isChangedScore) {
           const weight = this.adaptive
             ? 1 - this.historySum[block]! / this.windowSize
             : 1;
-          score += weight;
-          changedBlocks.push({ col, row, ratio, weight });
+          scoreSum += weight;
+          changedBlocks.push({ col, row, ratio: sRatio, weight });
         }
-        // Update history after the weight for this frame is taken.
+        // Update history (drives the weight) from MOTION, after the
+        // weight for this frame is taken.
         const idx = block * this.windowSize + this.slot;
         this.historySum[block] =
-          this.historySum[block]! - this.history[idx]! + (isChanged ? 1 : 0);
-        this.history[idx] = isChanged ? 1 : 0;
+          this.historySum[block]! -
+          this.history[idx]! +
+          (isChangedMotion ? 1 : 0);
+        this.history[idx] = isChangedMotion ? 1 : 0;
       }
     }
     this.slot = (this.slot + 1) % this.windowSize;
-    return { score, changedBlocks };
+    return { score: scoreSum, changedBlocks };
   }
 
   reset(): void {

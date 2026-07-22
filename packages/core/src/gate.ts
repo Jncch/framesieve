@@ -116,11 +116,29 @@ class Gate implements FrameGate {
     this.lastEmitOut = null;
     if (this.silenceBaseMs === null) this.silenceBaseMs = frame.elapsedMs;
 
-    const judgment = this.grid.step(this.diff.step(frame));
+    const diffResult = this.diff.step(frame);
+    const judgment = this.grid.step(diffResult, diffResult.motion);
     const { score, changedBlocks } = judgment;
     const crossed =
       changedBlocks.length > 0 && score >= this.options.blocks.minChangedBlocks;
-    if (crossed) {
+    if (this.options.diff.mode === "reference") {
+      // Persistence semantics: sinceMs marks when the divergence from
+      // the last emitted frame first appeared and is NOT refreshed while
+      // it persists, so stableFor measures how long it has lasted. A
+      // frame that no longer crosses (reverted to the baseline, or a
+      // chronically moving region the adaptive weight decayed) drops the
+      // pending change as transient.
+      if (crossed) {
+        if (this.pending === null) {
+          this.pending = { score, changedBlocks, sinceMs: frame.elapsedMs };
+        } else {
+          this.pending.score = score;
+          this.pending.changedBlocks = changedBlocks;
+        }
+      } else {
+        this.pending = null;
+      }
+    } else if (crossed) {
       this.pending = { score, changedBlocks, sinceMs: frame.elapsedMs };
     }
 
@@ -151,7 +169,13 @@ class Gate implements FrameGate {
 
     if (this.pending !== null) {
       const stableFor = frame.elapsedMs - this.pending.sinceMs;
-      const debounced = stableFor < this.options.policy.debounceMs;
+      // In reference mode the wait is the persistence window; in the
+      // default previous mode it is the settle-after-motion debounce.
+      const settleWindow =
+        this.options.diff.mode === "reference"
+          ? this.options.policy.referencePersistMs
+          : this.options.policy.debounceMs;
+      const debounced = stableFor < settleWindow;
       const throttled =
         this.lastEmitMs !== null &&
         frame.elapsedMs - this.lastEmitMs < this.options.policy.minIntervalMs;
@@ -216,6 +240,13 @@ class Gate implements FrameGate {
   private recordEmit(frame: FrameInput, meta: EmitMeta): void {
     this.lastEmitMs = meta.elapsedMs;
     this.silenceBaseMs = meta.elapsedMs;
+    // Advance the reference-mode baseline to this frame (no-op in
+    // previous mode). Must run synchronously here, not in the async
+    // delivery below: diff.step() overwrites its lastWork on every push,
+    // so a deferred commit could promote the wrong frame. Keepalive does
+    // NOT commit - moving the baseline mid-pending would misread the next
+    // (unchanged) frame as a revert and cancel a real persistence check.
+    if (meta.reason !== "keepalive") this.diff.commit();
     const { transform } = this.options;
     const { crop } = this.options;
     const { gridCols, gridRows } = this.options.blocks;

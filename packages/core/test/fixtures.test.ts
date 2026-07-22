@@ -140,3 +140,50 @@ test("fixture decisions are identical across repeated runs", () => {
   const b = run("video-noise", {});
   assert.deepEqual(a, b);
 });
+
+// Default mode is "previous"; passing it explicitly must reproduce the
+// checked-in goldens byte-for-byte on the same PNG sequences. Guards the
+// "reference mode is fully backward compatible" claim for both the
+// omitted-default and explicit-value code paths.
+const PREV_CASES: Array<[string, FrameGateOptions]> = [
+  ["slide-flip", {}],
+  ["cursor", {}],
+  ["cursor", { policy: { maxSilenceMs: 2000 } }],
+  ["video-noise", {}],
+];
+
+test('explicit diff.mode "previous" reproduces the default decisions', () => {
+  for (const [name, opts] of PREV_CASES) {
+    const dflt = run(name, opts);
+    const explicit = run(name, { ...opts, diff: { ...opts.diff, mode: "previous" } });
+    assert.deepEqual(explicit, dflt, name);
+  }
+});
+
+test("tooltip-blip: reference mode drops the transient overlay (no threshold emit)", () => {
+  const decisions = run("tooltip-blip", {
+    diff: { mode: "reference" },
+    policy: { primeOnFirstFrame: true },
+  });
+  const p = pattern(decisions);
+  assert.equal(p[0], "emit:prime"); // primeOnFirstFrame gives the baseline
+  // The tooltip opens a pending divergence (frames 3-5) but reverts
+  // before referencePersistMs, so it is never emitted as a threshold.
+  assert.ok(
+    p.slice(3, 6).includes("debounced"),
+    `tooltip should open a pending change: ${p.join(",")}`,
+  );
+  assert.ok(
+    !p.includes("emit:threshold"),
+    `transient must not emit a threshold: ${p.join(",")}`,
+  );
+  checkExpected("tooltip-blip", "reference", decisions);
+});
+
+test("tooltip-blip: previous mode registers the transient the reference mode drops", () => {
+  const p = pattern(run("tooltip-blip", { policy: { primeOnFirstFrame: true } }));
+  assert.ok(
+    p.includes("emit:threshold"),
+    `previous mode should emit the transition: ${p.join(",")}`,
+  );
+});
