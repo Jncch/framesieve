@@ -20,8 +20,10 @@ Options:
   --sweep <param=a:b:step>   replay once per value of <param>;
                              params: downsampleFactor, luminanceThreshold,
                              blockChangeRatio, minChangedBlocks, windowSize,
-                             debounceMs, minIntervalMs, maxSilenceMs
+                             debounceMs, minIntervalMs, maxSilenceMs,
+                             referencePersistMs
   --algorithm <name>         diff algorithm: downsample | pixel | edge
+  --mode <name>              diff comparison: previous | reference
   --downsample <n>           diff.downsampleFactor
   --luminance <n>            diff.luminanceThreshold
   --grid <cols>x<rows>       blocks grid, e.g. 16x9
@@ -32,6 +34,7 @@ Options:
   --debounce <ms>            policy.debounceMs
   --min-interval <ms>        policy.minIntervalMs
   --max-silence <ms>         policy.maxSilenceMs
+  --persist <ms>             policy.referencePersistMs (reference mode)
   -h, --help                 show this help
 `;
 
@@ -43,7 +46,8 @@ type SweepParam =
   | "windowSize"
   | "debounceMs"
   | "minIntervalMs"
-  | "maxSilenceMs";
+  | "maxSilenceMs"
+  | "referencePersistMs";
 
 const SWEEP_PARAMS: readonly SweepParam[] = [
   "downsampleFactor",
@@ -54,6 +58,7 @@ const SWEEP_PARAMS: readonly SweepParam[] = [
   "debounceMs",
   "minIntervalMs",
   "maxSilenceMs",
+  "referencePersistMs",
 ];
 
 class UsageError extends Error {}
@@ -86,6 +91,7 @@ function withParam(
     case "debounceMs":
     case "minIntervalMs":
     case "maxSilenceMs":
+    case "referencePersistMs":
       return { ...options, policy: { ...options.policy, [param]: value } };
   }
 }
@@ -144,6 +150,13 @@ function buildOptions(values: Record<string, unknown>): FrameGateOptions {
     }
     options = { ...options, diff: { ...options.diff, algorithm } };
   }
+  const mode = str("mode");
+  if (mode !== undefined) {
+    if (mode !== "previous" && mode !== "reference") {
+      throw new UsageError(`--mode expects previous or reference`);
+    }
+    options = { ...options, diff: { ...options.diff, mode } };
+  }
   const num = (flag: string, param: SweepParam): void => {
     const v = str(flag);
     if (v !== undefined) options = withParam(options, param, parseNumber(`--${flag}`, v));
@@ -156,6 +169,7 @@ function buildOptions(values: Record<string, unknown>): FrameGateOptions {
   num("debounce", "debounceMs");
   num("min-interval", "minIntervalMs");
   num("max-silence", "maxSilenceMs");
+  num("persist", "referencePersistMs");
 
   const grid = str("grid");
   if (grid !== undefined) {
@@ -214,6 +228,7 @@ export async function run(argv: string[]): Promise<number> {
         json: { type: "boolean" },
         sweep: { type: "string" },
         algorithm: { type: "string" },
+        mode: { type: "string" },
         downsample: { type: "string" },
         luminance: { type: "string" },
         grid: { type: "string" },
@@ -224,6 +239,7 @@ export async function run(argv: string[]): Promise<number> {
         debounce: { type: "string" },
         "min-interval": { type: "string" },
         "max-silence": { type: "string" },
+        persist: { type: "string" },
         help: { type: "boolean", short: "h" },
       },
     });
