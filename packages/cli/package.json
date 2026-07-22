@@ -1,6 +1,6 @@
 {
   "name": "@framesieve/cli",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "fsieve command: replay recordings and sweep gate parameters offline.",
   "license": "Apache-2.0",
   "type": "module",

@@ -138,10 +138,57 @@ test("sweeping blockChangeRatio handles fractional steps without float drift", (
   assert.deepEqual(values, ["0.1", "0.15", "0.2", "0.25", "0.3", "0.35", "0.4"]);
 });
 
+test("--mode reference matches the library's reference-mode decisions", async () => {
+  const { stdout, status } = fsieve("replay", recordingDir, "--json", "--mode", "reference");
+  assert.equal(status, 0);
+  const fromCli = stdout.trim().split("\n").map(parseDecisionLine);
+  const fromLib = await replay(recordingDir, { diff: { mode: "reference" } });
+  assert.deepEqual(fromCli, canonical(fromLib.decisions));
+});
+
+test("--persist sets referencePersistMs, matching the library", async () => {
+  const { stdout, status } = fsieve(
+    "replay",
+    recordingDir,
+    "--json",
+    "--mode",
+    "reference",
+    "--persist",
+    "1000",
+  );
+  assert.equal(status, 0);
+  const fromCli = stdout.trim().split("\n").map(parseDecisionLine);
+  const fromLib = await replay(recordingDir, {
+    diff: { mode: "reference" },
+    policy: { referencePersistMs: 1000 },
+  });
+  assert.deepEqual(fromCli, canonical(fromLib.decisions));
+});
+
+test("--sweep referencePersistMs prints one row per value", () => {
+  const { stdout, status } = fsieve(
+    "replay",
+    recordingDir,
+    "--mode",
+    "reference",
+    "--sweep",
+    "referencePersistMs=0:2000:1000",
+  );
+  assert.equal(status, 0);
+  const rows = stdout
+    .trim()
+    .split("\n")
+    .filter((l) => /^ {2}\d/.test(l));
+  assert.equal(rows.length, 3); // 0, 1000, 2000
+  assert.match(rows[0]!, /^ {2}0\b/);
+  assert.match(rows[2]!, /^ {2}2000\b/);
+});
+
 test("usage errors exit nonzero", () => {
   assert.equal(fsieve().status, 1);
   assert.equal(fsieve("replay").status, 1);
   assert.equal(fsieve("replay", recordingDir, "--sweep", "bogus=1:2:1").status, 1);
+  assert.equal(fsieve("replay", recordingDir, "--mode", "sideways").status, 1);
   assert.equal(fsieve("replay", join(tmpdir(), "does-not-exist-xyz")).status, 1);
 });
 
