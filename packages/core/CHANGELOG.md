@@ -3,6 +3,22 @@
 Notable changes to `framesieve`. Pre-1.0 the API may change between
 minor versions; breaking changes are called out here.
 
+## 0.4.0
+
+- New opt-in `diff.mode: "reference"` (default stays `"previous"`):
+  compares each frame against the last emitted frame instead of the
+  previous one, so a transient change that reverts to that baseline is
+  dropped and only a change that persists for `policy.referencePersistMs`
+  is emitted. The adaptive mask keeps down-weighting chronically moving
+  regions (it now keys off frame-to-frame motion), so reference mode
+  composes with busy-region suppression. It is a temporal filter, not a
+  semantic one: whether a persistent change matters is the caller's call.
+  The default `"previous"` mode decides identically to 0.3.0 - existing
+  recordings and fixtures are byte-for-byte unchanged.
+- New `policy.referencePersistMs` (default 3000): the minimum time a
+  divergence from the last emitted frame must persist before it emits in
+  reference mode; ignored in the default previous mode.
+
 ## 0.3.0
 
 - New `gate.tap(observer)`: a synchronous observer of (frame, decision)

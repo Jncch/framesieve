@@ -1,4 +1,4 @@
-import type { DiffAlgorithm, FrameInput, Region } from "./types.ts";
+import type { DiffAlgorithm, DiffMode, FrameInput, Region } from "./types.ts";
 import type { ResolvedOptions } from "./config.ts";
 
 /**
@@ -15,6 +15,18 @@ export interface ChangeMask {
   mask: Uint8Array;
   w: number;
   h: number;
+}
+
+/**
+ * A step's result. `mask/w/h` is the SCORE mask (vs the comparison
+ * baseline: the previous frame in "previous" mode, the last committed
+ * frame in "reference" mode). `motion` is always vs the immediately
+ * previous frame; the block grid uses it to drive the adaptive mask so
+ * chronically moving regions are down-weighted regardless of mode. In
+ * "previous" mode the two are the same buffer.
+ */
+export interface DiffResult extends ChangeMask {
+  motion: ChangeMask;
 }
 
 export function validateFrame(frame: FrameInput): void {
@@ -138,24 +150,35 @@ export function buildIgnoreMask(
 }
 
 /**
- * Stateful stage-1 engine. Holds the previous working buffer. The
- * baseline starts as an all-zero (black) buffer, so the first frame
- * registers as "everything with content changed" without any special
- * casing. A change in frame dimensions resets the baseline the same
- * way.
+ * Stateful stage-1 engine. Holds two working buffers:
+ *  - prevFrame: the immediately previous frame; advances every step.
+ *    The motion mask is computed against it.
+ *  - baseline: the comparison target for the score mask. In "previous"
+ *    mode it tracks prevFrame (advances every step), so score == motion.
+ *    In "reference" mode it only advances when the gate calls commit()
+ *    (i.e. on emit), so a change that reverts before commit produces a
+ *    zero score mask and is dropped as transient.
+ * Both start as all-zero (black) buffers, so the first frame registers
+ * as "everything with content changed" without special casing. A change
+ * in frame dimensions resets both the same way.
  */
 export class DiffEngine {
-  private prev: Uint8Array | null = null;
+  private prevFrame: Uint8Array | null = null;
+  private baseline: Uint8Array | null = null;
+  /** Current step's working buffer, promoted to baseline by commit(). */
+  private lastWork: Uint8Array | null = null;
   private prevW = 0;
   private prevH = 0;
   private ignoreMask: Uint8Array | null = null;
   private readonly algorithm: DiffAlgorithm;
+  private readonly mode: DiffMode;
   private readonly factor: number;
   private readonly threshold: number;
   private readonly ignoreRegions: Region[];
 
   constructor(options: ResolvedOptions) {
     this.algorithm = options.diff.algorithm;
+    this.mode = options.diff.mode;
     this.factor =
       options.diff.algorithm === "pixel" ? 1 : options.diff.downsampleFactor;
     // A threshold of 0 would mark identical pixels as changed
@@ -164,14 +187,31 @@ export class DiffEngine {
     this.ignoreRegions = options.policy.ignoreRegions;
   }
 
-  step(frame: FrameInput): ChangeMask {
+  /** Changed-pixel mask of work vs ref, honoring the ignore mask. */
+  private diffMask(
+    work: Uint8Array,
+    ref: Uint8Array,
+    ignore: Uint8Array | null,
+  ): Uint8Array {
+    const mask = new Uint8Array(work.length);
+    const threshold = this.threshold;
+    for (let i = 0; i < mask.length; i++) {
+      if (ignore !== null && ignore[i] === 1) continue;
+      const d = work[i]! - ref[i]!;
+      if ((d >= 0 ? d : -d) >= threshold) mask[i] = 1;
+    }
+    return mask;
+  }
+
+  step(frame: FrameInput): DiffResult {
     // "edge" downsamples like "downsample", then compares Sobel maps.
     const grayAlg: "downsample" | "pixel" =
       this.algorithm === "pixel" ? "pixel" : "downsample";
     const { gray, w, h } = toGray(frame, grayAlg, this.factor);
     const work = this.algorithm === "edge" ? sobel(gray, w, h) : gray;
-    if (this.prev === null || this.prevW !== w || this.prevH !== h) {
-      this.prev = new Uint8Array(w * h);
+    if (this.prevFrame === null || this.prevW !== w || this.prevH !== h) {
+      this.prevFrame = new Uint8Array(w * h);
+      this.baseline = new Uint8Array(w * h);
       this.prevW = w;
       this.prevH = h;
       this.ignoreMask = buildIgnoreMask(
@@ -182,20 +222,38 @@ export class DiffEngine {
         this.ignoreRegions,
       );
     }
-    const prev = this.prev;
     const ignore = this.ignoreMask;
-    const mask = new Uint8Array(w * h);
-    for (let i = 0; i < mask.length; i++) {
-      if (ignore !== null && ignore[i] === 1) continue;
-      const d = work[i]! - prev[i]!;
-      if ((d >= 0 ? d : -d) >= this.threshold) mask[i] = 1;
+    if (this.mode === "previous") {
+      // Single comparison vs the previous frame; motion is the same
+      // buffer as the score mask, so the grid behaves exactly as before.
+      const mask = this.diffMask(work, this.prevFrame, ignore);
+      this.prevFrame = work;
+      const cm: ChangeMask = { mask, w, h };
+      return { mask, w, h, motion: cm };
     }
-    this.prev = work;
-    return { mask, w, h };
+    // reference: score vs the committed baseline, motion vs prev frame.
+    const scoreMask = this.diffMask(work, this.baseline!, ignore);
+    const motionMask = this.diffMask(work, this.prevFrame, ignore);
+    this.prevFrame = work; // motion baseline advances every step
+    this.lastWork = work; // score baseline advances only on commit()
+    return { mask: scoreMask, w, h, motion: { mask: motionMask, w, h } };
+  }
+
+  /**
+   * Promote the current frame to the comparison baseline. The gate
+   * calls this on emit in "reference" mode; in "previous" mode the
+   * baseline already tracks every frame, so this is a no-op.
+   */
+  commit(): void {
+    if (this.mode === "reference" && this.lastWork !== null) {
+      this.baseline = this.lastWork;
+    }
   }
 
   reset(): void {
-    this.prev = null;
+    this.prevFrame = null;
+    this.baseline = null;
+    this.lastWork = null;
     this.prevW = 0;
     this.prevH = 0;
     this.ignoreMask = null;

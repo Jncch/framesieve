@@ -633,3 +633,141 @@ test("copyFrameOnEmit false aliases the caller buffer (opt-in, no copy)", async 
   assert.ok(out);
   assert.equal(out!.data, f.data); // same backing buffer, no copy
 });
+
+// ---- reference diff mode ----
+
+// Same policy for both modes (previous uses debounceMs, reference uses
+// referencePersistMs), so the only variable is diff.mode.
+const REF_POLICY = {
+  debounceMs: 0,
+  referencePersistMs: 800,
+  minIntervalMs: 0,
+  maxSilenceMs: 0,
+  primeOnFirstFrame: true,
+};
+
+test("reference mode drops a transient overlay that previous mode emits twice", () => {
+  const frames = [
+    at(base, 0), // prime / baseline
+    blocksChanged(base, 2, 220, 500), // overlay appears (2 blocks)
+    blocksChanged(base, 2, 220, 1000), // overlay holds briefly
+    at(base, 1500), // overlay gone (back to baseline)
+    at(base, 2000), // stays gone
+  ];
+  const prev = decisions(
+    createFrameGate({ ...GRID, diff: { downsampleFactor: 8, mode: "previous" }, policy: REF_POLICY }),
+    frames,
+  ).map((d) => [d.decision, d.reason ?? null]);
+  const ref = decisions(
+    createFrameGate({ ...GRID, diff: { downsampleFactor: 8, mode: "reference" }, policy: REF_POLICY }),
+    frames,
+  ).map((d) => [d.decision, d.reason ?? null]);
+
+  assert.deepEqual(prev, [
+    ["emit", "prime"],
+    ["emit", "threshold"], // appear settles (debounce 0)
+    ["skip", null],
+    ["emit", "threshold"], // disappear settles
+    ["skip", null],
+  ]);
+  assert.deepEqual(ref, [
+    ["emit", "prime"],
+    ["debounced", null], // divergence from baseline opened, waiting to persist
+    ["debounced", null],
+    ["skip", null], // reverted before referencePersistMs -> dropped
+    ["skip", null],
+  ]);
+});
+
+test("reference mode emits a change that persists past referencePersistMs", () => {
+  const gate = createFrameGate({
+    ...GRID,
+    diff: { downsampleFactor: 8, mode: "reference" },
+    policy: { referencePersistMs: 800, minIntervalMs: 0, maxSilenceMs: 0, primeOnFirstFrame: true },
+  });
+  const d = decisions(gate, [
+    at(base, 0),
+    blocksChanged(base, 2, 220, 500),
+    blocksChanged(base, 2, 220, 1000),
+    blocksChanged(base, 2, 220, 1500), // 1000ms >= 800ms: persisted
+    blocksChanged(base, 2, 220, 2000), // now the committed baseline
+  ]).map((x) => [x.decision, x.reason ?? null]);
+  assert.deepEqual(d, [
+    ["emit", "prime"],
+    ["debounced", null],
+    ["debounced", null],
+    ["emit", "threshold"],
+    ["skip", null],
+  ]);
+});
+
+test("reference mode: a keepalive does not cancel an in-flight persistence check", () => {
+  // maxSilenceMs (1000) < referencePersistMs (1500): a keepalive fires
+  // while a real divergence is still accumulating persistence. It must
+  // NOT commit the baseline (which would misread the next held frame as
+  // a revert); the persistent change still emits a threshold afterward.
+  const gate = createFrameGate({
+    ...GRID,
+    diff: { downsampleFactor: 8, mode: "reference" },
+    policy: { referencePersistMs: 1500, minIntervalMs: 0, maxSilenceMs: 1000, primeOnFirstFrame: true },
+  });
+  const d = decisions(gate, [
+    at(base, 0), // prime, baseline = base
+    blocksChanged(base, 2, 220, 500), // overlay appears, pending sinceMs=500
+    blocksChanged(base, 2, 220, 1000), // keepalive due (1000ms silence); pending survives
+    blocksChanged(base, 2, 220, 1500), // still held
+    blocksChanged(base, 2, 220, 2000), // 1500ms persisted -> threshold
+  ]).map((x) => [x.decision, x.reason ?? null]);
+  assert.deepEqual(d, [
+    ["emit", "prime"],
+    ["debounced", null],
+    ["emit", "keepalive"],
+    ["debounced", null],
+    ["emit", "threshold"], // pending was NOT cancelled by the keepalive
+  ]);
+});
+
+test("reference-mode commit happens synchronously in push(), independent of transform timing", () => {
+  const gate = createFrameGate({
+    ...GRID,
+    diff: { downsampleFactor: 8, mode: "reference" },
+    policy: { referencePersistMs: 0, minIntervalMs: 0, maxSilenceMs: 0, primeOnFirstFrame: true },
+    transform: () => new Promise<FrameInput | null>(() => {}), // never resolves
+  });
+  gate.push(at(base, 0)); // prime: must commit baseline = base synchronously
+  const d = gate.push(at(base, 500)); // identical content
+  // If commit() were deferred into the (hung) async delivery, the
+  // baseline would still be black and this frame would cross.
+  assert.equal(d.score, 0);
+  assert.equal(d.decision, "skip");
+});
+
+test("reference mode with adaptiveMask on still emits a static persistent overlay", () => {
+  // The adaptive weight is driven by frame-to-frame motion, not by
+  // baseline divergence, so a held overlay (motion 0 after it appears)
+  // keeps a high score and emits, instead of decaying below the gate.
+  const gate = createFrameGate({
+    diff: { downsampleFactor: 8, mode: "reference" },
+    blocks: { gridCols: 4, gridRows: 4, minChangedBlocks: 2 },
+    adaptiveMask: { enabled: true, windowSize: 20 },
+    policy: { referencePersistMs: 800, minIntervalMs: 0, maxSilenceMs: 0, primeOnFirstFrame: true },
+  });
+  const d = decisions(gate, [
+    at(base, 0),
+    blocksChanged(base, 4, 220, 500),
+    blocksChanged(base, 4, 220, 1000),
+    blocksChanged(base, 4, 220, 1500), // held 1000ms >= 800ms
+  ]);
+  assert.deepEqual(
+    d.map((x) => [x.decision, x.reason ?? null]),
+    [
+      ["emit", "prime"],
+      ["debounced", null],
+      ["debounced", null],
+      ["emit", "threshold"],
+    ],
+  );
+  // adaptiveMask is active (score is discounted below the raw 4 blocks)
+  // yet still clears minChangedBlocks (2).
+  assert.ok(d[3]!.score >= 2 && d[3]!.score < 4, `score ${d[3]!.score}`);
+});

@@ -5,6 +5,7 @@ export { serializeDecision, parseDecisionLine } from "./serialize.ts";
 export type {
   FrameInput,
   DiffAlgorithm,
+  DiffMode,
   Region,
   DiffOptions,
   BlockOptions,

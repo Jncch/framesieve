@@ -1,0 +1,10 @@
+{"decision":"emit","elapsedMs":0,"reason":"prime","score":144.000000,"seq":1}
+{"decision":"skip","elapsedMs":500,"score":0.000000,"seq":2}
+{"decision":"skip","elapsedMs":1000,"score":0.000000,"seq":3}
+{"decision":"debounced","elapsedMs":1500,"score":12.350000,"seq":4}
+{"decision":"debounced","elapsedMs":2000,"score":11.700000,"seq":5}
+{"decision":"debounced","elapsedMs":2500,"score":11.700000,"seq":6}
+{"decision":"skip","elapsedMs":3000,"score":0.000000,"seq":7}
+{"decision":"skip","elapsedMs":3500,"score":0.000000,"seq":8}
+{"decision":"skip","elapsedMs":4000,"score":0.000000,"seq":9}
+{"decision":"skip","elapsedMs":4500,"score":0.000000,"seq":10}

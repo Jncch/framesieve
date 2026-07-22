@@ -32,7 +32,7 @@
     "LICENSE"
   ],
   "peerDependencies": {
-    "framesieve": "^0.3.0",
+    "framesieve": "^0.4.0",
     "tesseract.js": ">=5"
   },
   "peerDependenciesMeta": {
@@ -41,6 +41,6 @@
     }
   },
   "devDependencies": {
-    "framesieve": "^0.3.0"
+    "framesieve": "^0.4.0"
   }
 }

@@ -164,11 +164,37 @@ during long silence, and static ignore regions. Set
 (reason "prime") when an observer needs the current state right away
 instead of waiting for the stream to settle.
 
-By default the gate compares downsampled luma. Set `diff.algorithm:
-"edge"` to compare Sobel edge maps instead: a theme or brightness color
-shift (unchanged gradients) is ignored, while text and contour changes
-still register. Compare it against your own recording with `fsieve
-replay <dir> --algorithm edge`.
+Stage 1 exposes two independent choices - *what to measure* and *what to
+compare it against* - and they combine freely (any algorithm with either
+mode):
+
+**What to measure (`diff.algorithm`).** By default the gate compares
+downsampled luma. Set `diff.algorithm: "edge"` to compare Sobel edge maps
+instead: a theme or brightness color shift (unchanged gradients) is
+ignored, while text and contour changes still register. Compare it
+against your own recording with `fsieve replay <dir> --algorithm edge`.
+
+**What to compare against (`diff.mode`).** By default the gate compares
+each frame against the immediately previous one (`diff.mode: "previous"`).
+Set `diff.mode: "reference"` to compare
+against the last emitted frame instead: a change that appears and then
+reverts to that baseline before it persists is dropped as transient (a
+hover tooltip that comes and goes), while a change that stays for
+`policy.referencePersistMs` (default 3000) is emitted and becomes the new
+baseline (text typed, a panel that opens and stays). In `"previous"` mode
+a transient registers twice - once when it appears and once when it
+disappears; `"reference"` mode registers neither. The adaptive mask still
+down-weights chronically moving regions in either mode (it keys off
+frame-to-frame motion), so a playing video does not defeat the
+persistence check.
+
+`"reference"` mode is a temporal filter, not a semantic one: it decides
+whether a change stuck, never whether it matters. Judging importance (is
+this persistent tooltip worth a model call?) is the caller's or the
+downstream model's job - framesieve never makes that call. In
+`"reference"` mode `policy.referencePersistMs` is the persistence window;
+`policy.debounceMs` keeps its "settle after motion" meaning in the
+default `"previous"` mode.
 
 ## Tuning without guesswork: record and replay
 

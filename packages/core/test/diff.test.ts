@@ -176,3 +176,72 @@ test("resolveOptions validates ranges", () => {
     RangeError,
   );
 });
+
+test("resolveOptions rejects an unknown diff mode and defaults to previous", () => {
+  assert.throws(
+    () => resolveOptions({ diff: { mode: "sideways" as unknown as "previous" } }),
+    /unknown diff mode: sideways/,
+  );
+  assert.equal(resolveOptions({}).diff.mode, "previous");
+  assert.equal(resolveOptions({ policy: {} }).policy.referencePersistMs, 3000);
+});
+
+test("reference mode holds the comparison baseline until commit()", () => {
+  const e = engine({
+    diff: { downsampleFactor: 1, mode: "reference", luminanceThreshold: 10 },
+  });
+  const a = solidFrame(4, 4, 100, 0);
+  e.step(a); // vs black baseline: all changed
+  e.commit(); // baseline = a
+  const same = e.step({ ...a, elapsedMs: 500 });
+  assert.equal(maskSum(same.mask), 0, "identical to the committed baseline");
+  // Paint a change and step it twice WITHOUT commit: the baseline does
+  // not advance, so both score masks are identical (unlike previous mode).
+  const b = paintRect(a, 0, 0, 2, 2, 220);
+  const s1 = e.step({ ...b, elapsedMs: 1000 });
+  const s2 = e.step({ ...b, elapsedMs: 1500 });
+  assert.ok(maskSum(s1.mask) > 0, "diverges from the held baseline");
+  assert.deepEqual([...s2.mask], [...s1.mask], "baseline held: same score mask");
+  e.commit(); // baseline = b
+  const back = e.step({ ...b, elapsedMs: 2000 });
+  assert.equal(maskSum(back.mask), 0, "now matches the new baseline");
+});
+
+test("previous mode commit() is a no-op: same mask sequence with or without it", () => {
+  const mk = () => engine({ diff: { downsampleFactor: 1, luminanceThreshold: 10 } });
+  const flat = solidFrame(4, 4, 50, 0);
+  const frames = [flat, paintRect(flat, 0, 0, 2, 2, 200), { ...flat }].map(
+    (f, i) => ({ ...f, elapsedMs: i * 500 }),
+  );
+  const withCommit = mk();
+  const without = mk();
+  const a = frames.map((f) => {
+    const r = withCommit.step(f);
+    withCommit.commit();
+    return [...r.mask];
+  });
+  const b = frames.map((f) => [...without.step(f).mask]);
+  assert.deepEqual(a, b);
+});
+
+test("reference mode: motion mask keys off the previous frame, score off the baseline", () => {
+  const e = engine({
+    diff: { downsampleFactor: 1, mode: "reference", luminanceThreshold: 10 },
+  });
+  const bg = solidFrame(4, 4, 40, 0);
+  e.step(bg);
+  e.commit(); // baseline = bg
+  const overlay = paintRect(bg, 0, 0, 2, 2, 220);
+  const appear = e.step({ ...overlay, elapsedMs: 500 });
+  assert.ok(
+    maskSum(appear.mask) > 0 && maskSum(appear.motion.mask) > 0,
+    "appears: both score and motion flag it",
+  );
+  const hold = e.step({ ...overlay, elapsedMs: 1000 });
+  assert.ok(maskSum(hold.mask) > 0, "score still diverges from the held baseline");
+  assert.equal(
+    maskSum(hold.motion.mask),
+    0,
+    "motion is zero: nothing moved since the previous frame",
+  );
+});
