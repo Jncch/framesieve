@@ -1,7 +1,16 @@
 # Changelog
 
-Notable changes to `framesieve`. Pre-1.0 the API may change between
-minor versions; breaking changes are called out here.
+Notable changes to `framesieve`. The public API follows semantic
+versioning; breaking changes require a major version and are called
+out here.
+
+## 1.0.0
+
+- Stable release. The public API (`createFrameGate`, `frameFromImageData`,
+  `serializeDecision`/`parseDecisionLine`, and the exported types) is now
+  covered by semantic versioning; breaking changes will require a major
+  version. No behavior change from 0.4.0: decisions are byte-identical
+  (existing fixtures and `examples/meeting/timeline.jsonl` are unchanged).
 
 ## 0.4.0
 

@@ -346,8 +346,9 @@ structured data in your system. No models, no false confidence.
 
 ## Status
 
-v0.1. Extracted from a production AI meeting-room system, where it
-gates the screen-capture channel. API may change before 1.0.
+v1.0 - stable public API following semantic versioning; breaking
+changes require a major version. Extracted from a production AI
+meeting-room system, where it gates the screen-capture channel.
 
 Roadmap: budget caps (max emits/hour), scene-change tagging,
 near-duplicate suppression (A -> B -> A tab switches), face masking in

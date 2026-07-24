@@ -1,7 +1,12 @@
 # Changelog
 
-Notable changes to `@framesieve/adapters`. Pre-1.0 the API may change
-between minor versions.
+Notable changes to `@framesieve/adapters`. The public API follows
+semantic versioning; breaking changes require a major version.
+
+## 1.0.0
+
+- Stable release alongside `framesieve` 1.0.0; now requires
+  `framesieve` `^1.0.0`. No adapter API or behavior change from 0.3.0.
 
 ## 0.3.0
 
