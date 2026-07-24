@@ -1,7 +1,13 @@
 # Changelog
 
-Notable changes to `@framesieve/cli`. Pre-1.0 the CLI surface may
-change between minor versions.
+Notable changes to `@framesieve/cli`. The CLI surface follows semantic
+versioning; breaking changes require a major version.
+
+## 1.0.0
+
+- Stable release alongside `framesieve` 1.0.0; now requires
+  `framesieve` `^1.0.0` and `@framesieve/adapters` `^1.0.0`. No CLI
+  surface or behavior change from 0.2.1.
 
 ## 0.2.1
 

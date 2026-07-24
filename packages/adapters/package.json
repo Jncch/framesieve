@@ -1,6 +1,6 @@
 {
   "name": "@framesieve/adapters",
-  "version": "0.3.0",
+  "version": "1.0.0",
   "description": "Capture sources (electron, browser, node) plus recorder and replay for framesieve.",
   "license": "Apache-2.0",
   "type": "module",
@@ -54,6 +54,6 @@
     "access": "public"
   },
   "dependencies": {
-    "framesieve": "^0.4.0"
+    "framesieve": "^1.0.0"
   }
 }

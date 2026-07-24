@@ -320,8 +320,11 @@ structured data in your system. No models, no false confidence.
 
 ## Status
 
-v0.1. Extracted from a production AI meeting-room system, where it
-gates the screen-capture channel. API may change before 1.0.
+v1.0 - the core, adapters, and cli public APIs are stable and follow
+semantic versioning; breaking changes require a major version.
+Extracted from a production AI meeting-room system, where it gates the
+screen-capture channel. (redact stays pre-1.0: text-based masking is
+best-effort by design.)
 
 Roadmap: budget caps (max emits/hour), scene-change tagging,
 near-duplicate suppression (A -> B -> A tab switches), face masking in
