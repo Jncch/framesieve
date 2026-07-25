@@ -14,8 +14,13 @@ Rationale:
 - Research on agent observation interfaces compared pixel-difference
   sampling against CLIP-based and uniform sampling for screen
   observation and found downstream accuracy converges. Added
-  sophistication does not buy accuracy here. (Link the paper in this
-  section when publishing.)
+  sophistication does not buy accuracy here.
+  Reference: Bojie Li and Noah Shi, "Agent-Computer Observation
+  Interfaces Enable Dynamic Computer Use", arXiv:2606.29472 (2026).
+  Their Section 6.2 ablation over five frame-selection variants
+  (uniform 1/3 FPS, pixel-diff, random, CLIP) finds all converge on
+  downstream accuracy; the default selector is a pixel-change gate
+  (skip if < 1% of pixels changed since the last frame).
 - Zero dependencies and full determinism are product invariants
   (see CLAUDE.md). SSIM libraries and models break both.
 - Cost: the gate runs at 2 fps on user machines alongside a meeting
